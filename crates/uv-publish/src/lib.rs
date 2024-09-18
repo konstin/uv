@@ -1,3 +1,6 @@
+mod trusted_publishing;
+
+use crate::trusted_publishing::TrustedPublishingError;
 use base64::prelude::BASE64_STANDARD;
 use base64::Engine;
 use distribution_filename::{DistFilename, SourceDistExtension, SourceDistFilename};
@@ -15,7 +18,7 @@ use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
-use std::{fmt, io};
+use std::{env, fmt, io};
 use thiserror::Error;
 use tokio::io::AsyncReadExt;
 use tracing::{debug, enabled, trace, Level};
@@ -27,7 +30,7 @@ use uv_warnings::warn_user_once;
 
 #[derive(Error, Debug)]
 pub enum PublishError {
-    #[error("Invalid publish paths")]
+    #[error("The publish paths are not valid glob patterns")]
     Pattern(#[from] PatternError),
     /// [`GlobError`] is a wrapped io error.
     #[error(transparent)]
@@ -42,6 +45,8 @@ pub enum PublishError {
     PublishPrepare(PathBuf, #[source] PublishPrepareError),
     #[error("Failed to publish `{}` to `{}`", _0.user_display(), _1)]
     PublishSend(PathBuf, Url, #[source] PublishSendError),
+    #[error("Failed to obtain token for trusted publishing")]
+    TrustedPublishing(#[from] TrustedPublishingError),
 }
 
 /// Failure to get the metadata for a specific file.
@@ -200,6 +205,83 @@ pub fn files_for_publishing(
     Ok(files)
 }
 
+/// If applicable, attempt obtaining a token for trusted publishing.
+pub async fn check_trusted_publishing(
+    username: Option<&str>,
+    password: Option<&str>,
+    trusted_publishing: bool,
+    no_trusted_publishing: bool,
+    registry: &Url,
+    client: &BaseClient,
+) -> Result<Option<String>, PublishError> {
+    if trusted_publishing {
+        debug!("Using trusted publishing for GitHub Actions");
+        if env::var("GITHUB_ACTIONS") != Ok("true".to_string()) {
+            warn_user_once!("Trusted publishing was requested, but you're not in GitHub Actions.");
+        }
+
+        let token = trusted_publishing::get_token(registry, client).await?;
+        Ok(Some(token))
+    } else if !no_trusted_publishing
+        && username.is_none()
+        && password.is_none()
+        && env::var("GITHUB_ACTIONS") == Ok("true".to_string())
+    {
+        // We could check for credentials from the keyring or netrc the auth middleware first, but
+        // given that we are in GitHub Actions we check for trusted publishing first.
+        debug!("Running on GitHub Actions without explicit credentials, checking for trusted publishing");
+        match trusted_publishing::get_token(registry, client).await {
+            Ok(token) => Ok(Some(token)),
+            Err(err) => {
+                // TODO(konsti): It would be useful if we could differentiate between actual errors
+                // such as connection errors and warn for them while ignoring errors from trusted
+                // publishing not being configured.
+                debug!("Could not obtain trusted publishing credentials, skipping: {err}");
+                Ok(None)
+            }
+        }
+    } else {
+        Ok(None)
+    }
+}
+
+/// Upload a file to a registry.
+///
+/// Returns `true` if the file was newly uploaded and `false` if it already existed.
+pub async fn upload(
+    file: &Path,
+    filename: &DistFilename,
+    registry: &Url,
+    client: &BaseClient,
+    username: Option<&str>,
+    password: Option<&str>,
+) -> Result<bool, PublishError> {
+    let form_metadata = form_metadata(file, filename)
+        .await
+        .map_err(|err| PublishError::PublishPrepare(file.to_path_buf(), err))?;
+
+    let request = build_request(
+        file,
+        filename,
+        registry,
+        client,
+        username,
+        password,
+        form_metadata,
+    )
+    .await
+    .map_err(|err| PublishError::PublishPrepare(file.to_path_buf(), err))?;
+
+    let response = request.send().await.map_err(|err| {
+        let send_err = PublishSendError::ReqwestMiddleware(registry.clone(), err);
+        PublishError::PublishSend(file.to_path_buf(), registry.clone(), send_err)
+    })?;
+
+    handle_response(registry, response)
+        .await
+        .map_err(|err| PublishError::PublishSend(file.to_path_buf(), registry.clone(), err))
+}
+
 /// Calculate the SHA256 of a file.
 fn hash_file(path: impl AsRef<Path>) -> Result<String, io::Error> {
     // Ideally, this would be async, but in case we actually want to make parallel uploads we should
@@ -271,42 +353,6 @@ async fn metadata(file: &Path, filename: &DistFilename) -> Result<Metadata, Publ
         }
     };
     Ok(Metadata::parse(&contents)?)
-}
-
-/// Upload a file to a registry.
-///
-/// Returns `true` if the file was newly uploaded and `false` if it already existed.
-pub async fn upload(
-    file: &Path,
-    filename: &DistFilename,
-    registry: &Url,
-    client: &BaseClient,
-    username: Option<&str>,
-    password: Option<&str>,
-) -> Result<bool, PublishError> {
-    let form_metadata = form_metadata(file, filename)
-        .await
-        .map_err(|err| PublishError::PublishPrepare(file.to_path_buf(), err))?;
-    let request = build_request(
-        file,
-        filename,
-        registry,
-        client,
-        username,
-        password,
-        form_metadata,
-    )
-    .await
-    .map_err(|err| PublishError::PublishPrepare(file.to_path_buf(), err))?;
-
-    let response = request.send().await.map_err(|err| {
-        let send_err = PublishSendError::ReqwestMiddleware(registry.clone(), err);
-        PublishError::PublishSend(file.to_path_buf(), registry.clone(), send_err)
-    })?;
-
-    handle_response(registry, response)
-        .await
-        .map_err(|err| PublishError::PublishSend(file.to_path_buf(), registry.clone(), err))
 }
 
 /// Collect the non-file field for the multipart request from the package METADATA.

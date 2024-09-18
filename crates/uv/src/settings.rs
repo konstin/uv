@@ -2435,6 +2435,8 @@ pub(crate) struct PublishSettings {
 
     // Both CLI and configuration.
     pub(crate) publish_url: Url,
+    pub(crate) trusted_publishing: bool,
+    pub(crate) no_trusted_publishing: bool,
     pub(crate) keyring_provider: KeyringProviderType,
     pub(crate) allow_insecure_host: Vec<TrustedHost>,
 }
@@ -2448,7 +2450,11 @@ impl PublishSettings {
             .map(FilesystemOptions::into_options)
             .unwrap_or_default();
 
-        let PublishOptions { publish_url } = publish;
+        let PublishOptions {
+            publish_url,
+            trusted_publishing,
+            no_trusted_publishing,
+        } = publish;
         let ResolverInstallerOptions {
             keyring_provider,
             allow_insecure_host,
@@ -2472,6 +2478,8 @@ impl PublishSettings {
                 // TODO(reviewer): This is different from how it's done anywhere else, but i haven't
                 // figured out what the ergonomic pattern is?
                 .unwrap_or(Url::parse(PYPI_PUBLISH_URL).unwrap()),
+            trusted_publishing: trusted_publishing.unwrap_or(args.trusted_publishing),
+            no_trusted_publishing: no_trusted_publishing.unwrap_or(args.no_trusted_publishing),
             keyring_provider: args
                 .keyring_provider
                 .combine(keyring_provider)

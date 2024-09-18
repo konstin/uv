@@ -29,6 +29,9 @@ keyring set https://test.pypi.org/legacy/?astral-test-keyring __token__
 The query parameter a horrible hack stolen from
 https://github.com/pypa/twine/issues/565#issue-555219267
 to prevent the other projects from implicitly using the same credentials.
+
+**astral-test-trusted-publishing**
+This one only works in GitHub Actions on astral-sh/uv in `ci.yml` - sorry!
 """
 
 import os
@@ -126,13 +129,29 @@ def publish_project(project_name: str, uv: Path):
             ],
             cwd=cwd.joinpath(project_name),
         )
+    elif project_name == "astral-test-trusted-publishing":
+        check_call(
+            [
+                uv,
+                "publish",
+                "--publish-url",
+                "https://test.pypi.org/legacy/",
+                "--trusted-publishing",
+            ],
+            cwd=cwd.joinpath(project_name),
+        )
     else:
         raise ValueError(f"Unknown project name: {project_name}")
 
 
 def main():
     parser = ArgumentParser()
-    projects = ["astral-test-token", "astral-test-password", "astral-test-keyring"]
+    projects = [
+        "astral-test-token",
+        "astral-test-password",
+        "astral-test-keyring",
+        "astral-test-trusted-publishing",
+    ]
     parser.add_argument("projects", choices=projects + ["all"], nargs="+")
     parser.add_argument("--uv")
     args = parser.parse_args()

@@ -1491,4 +1491,34 @@ pub struct PublishOptions {
         "#
     )]
     pub publish_url: Option<Url>,
+
+    /// Always use trusted publishing through GitHub Actions.
+    ///
+    /// By default, uv checks for trusted publishing when running in GitHub Actions, but ignores it
+    /// if it isn't configured or the workflow doesn't have enough permissions (e.g., a pull request
+    /// from a fork). With this option, uv forces using a trusted publishing and errors if no
+    /// trusted publishing credentials can be found.
+    #[option(
+        default = "false",
+        value_type = "bool",
+        example = r#"
+            trusted-publishing = true
+        "#
+    )]
+    pub trusted_publishing: Option<bool>,
+
+    /// Always use trusted publishing through GitHub Actions.
+    ///
+    /// By default, uv checks for trusted publishing when running in GitHub Actions, but ignores it
+    /// if it isn't configured or the workflow doesn't have enough permissions (e.g., a pull request
+    /// from a fork). With this option, uv skips this check and only tries other authentication
+    /// methods.
+    #[option(
+        default = "false",
+        value_type = "bool",
+        example = r#"
+            no-trusted-publishing = true
+        "#
+    )]
+    pub no_trusted_publishing: Option<bool>,
 }

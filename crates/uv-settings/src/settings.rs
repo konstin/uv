@@ -1,11 +1,11 @@
 use std::{fmt::Debug, num::NonZeroUsize, path::PathBuf};
 
-use serde::{Deserialize, Serialize};
-
 use distribution_types::{FlatIndexLocation, IndexUrl, StaticMetadata};
 use install_wheel_rs::linker::LinkMode;
 use pep508_rs::Requirement;
 use pypi_types::{SupportedEnvironments, VerbatimParsedUrl};
+use serde::{Deserialize, Serialize};
+use url::Url;
 use uv_cache_info::CacheKey;
 use uv_configuration::{
     ConfigSettings, IndexStrategy, KeyringProviderType, PackageNameSpecifier, TargetTriple,
@@ -40,6 +40,8 @@ pub struct Options {
     pub globals: GlobalOptions,
     #[serde(flatten)]
     pub top_level: ResolverInstallerOptions,
+    #[serde(flatten)]
+    pub publish: PublishOptions,
     #[option_group]
     pub pip: Option<PipOptions>,
 
@@ -1471,4 +1473,22 @@ impl From<ToolOptions> for ResolverInstallerOptions {
             no_binary_package: value.no_binary_package,
         }
     }
+}
+
+#[derive(
+    Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, CombineOptions, OptionsMetadata,
+)]
+#[serde(rename_all = "kebab-case")]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct PublishOptions {
+    /// The URL for publishing packages to the Python package index (by default:
+    /// <https://upload.pypi.org/legacy>).
+    #[option(
+        default = "\"https://upload.pypi.org/legacy\"",
+        value_type = "str",
+        example = r#"
+            publish-url = "https://test.pypi.org/simple"
+        "#
+    )]
+    pub publish_url: Option<Url>,
 }

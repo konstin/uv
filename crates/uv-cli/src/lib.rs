@@ -4324,6 +4324,27 @@ pub struct PublishArgs {
     )]
     pub token: Option<String>,
 
+    /// Always use trusted publishing through GitHub Actions.
+    ///
+    /// By default, uv checks for trusted publishing when running in GitHub Actions, but ignores it
+    /// if it isn't configured or the workflow doesn't have enough permissions (e.g., a pull request
+    /// from a fork). With this option, uv forces using a trusted publishing and errors if no
+    /// trusted publishing credentials can be found.
+    #[arg(
+        long,
+        conflicts_with_all = ["no_trusted_publishing", "username", "password", "token"]
+    )]
+    pub trusted_publishing: bool,
+
+    /// Always use trusted publishing through GitHub Actions.
+    ///
+    /// By default, uv checks for trusted publishing when running in GitHub Actions, but ignores it
+    /// if it isn't configured or the workflow doesn't have enough permissions (e.g., a pull request
+    /// from a fork). With this option, uv skips this check and only tries other authentication
+    /// methods.
+    #[arg(long, overrides_with("trusted_publishing"))]
+    pub no_trusted_publishing: bool,
+
     /// Attempt to use `keyring` for authentication for remote requirements files.
     ///
     /// At present, only `--keyring-provider subprocess` is supported, which configures uv to

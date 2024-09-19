@@ -162,7 +162,7 @@ impl<'a> BaseClientBuilder<'a> {
         debug!("Using request timeout of {timeout}s");
 
         // Create a secure client that validates certificates.
-        let client = self.create_client(
+        let raw_client = self.create_client(
             &user_agent_string,
             timeout,
             ssl_cert_file_exists,
@@ -178,13 +178,14 @@ impl<'a> BaseClientBuilder<'a> {
         );
 
         // Wrap in any relevant middleware and handle connectivity.
-        let client = self.apply_middleware(client);
+        let client = self.apply_middleware(raw_client.clone());
         let dangerous_client = self.apply_middleware(dangerous_client);
 
         BaseClient {
             connectivity: self.connectivity,
             allow_insecure_host: self.allow_insecure_host.clone(),
             client,
+            raw_client,
             dangerous_client,
             timeout,
         }
@@ -275,6 +276,8 @@ pub struct BaseClient {
     client: ClientWithMiddleware,
     /// The underlying HTTP client that accepts invalid certificates.
     dangerous_client: ClientWithMiddleware,
+    /// The HTTP client without middleware,
+    raw_client: Client,
     /// The connectivity mode to use.
     connectivity: Connectivity,
     /// Configured client timeout, in seconds.
@@ -295,6 +298,11 @@ impl BaseClient {
     /// The underlying [`ClientWithMiddleware`] for secure requests.
     pub fn client(&self) -> ClientWithMiddleware {
         self.client.clone()
+    }
+
+    /// The underlying [`Client`] without middleware.
+    pub fn raw_client(&self) -> Client {
+        self.raw_client.clone()
     }
 
     /// Selects the appropriate client based on the host's trustworthiness.

@@ -29,7 +29,7 @@ pub enum TrustedPublishingError {
     #[error(transparent)]
     SerdeJson(#[from] serde_json::error::Error),
     #[error(
-        "PyPI returned error code {0}, is trusted publishing correctly configured?\nResponse: {1}\nToken claims, which must match the PyPI configuration: {2:?}"
+        "PyPI returned error code {0}, is trusted publishing correctly configured?\nResponse: {1}\nToken claims, which must match the PyPI configuration: {2:#?}"
     )]
     Pypi(StatusCode, String, OidcTokenClaims),
     /// When trusted publishing is misconfigured, the error above should occur, not this one.

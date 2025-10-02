@@ -132,17 +132,6 @@
       enabled: false,
     },
     {
-      groupName: "pubgrub",
-      matchManagers: [
-        "cargo"
-      ],
-      matchDepNames: [
-        "pubgrub",
-        "version-ranges"
-      ],
-      description: "pubgrub and version-ranges are in the same Git repository",
-    },
-    {
       commitMessageTopic: "MSRV",
       matchManagers: [
         "custom.regex"

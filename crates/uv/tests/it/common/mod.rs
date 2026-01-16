@@ -1736,6 +1736,8 @@ impl TestContext {
         let mut command = Command::new(bin);
 
         let passthrough = [
+            // For linux distributions
+            EnvVars::PATH,
             // For debugging tests.
             EnvVars::RUST_LOG,
             EnvVars::RUST_BACKTRACE,

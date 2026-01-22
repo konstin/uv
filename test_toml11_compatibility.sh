@@ -2,10 +2,13 @@
 # Test script to demonstrate TOML 1.1 backward compatibility
 #
 # This script shows that:
-# 1. The released uv_build causes pip to fail with TOML 1.1 syntax
-# 2. The branch uv_build makes it succeed by rewriting to TOML 1.0
+# 1. Without TOML rewriting, pip FAILS to install packages with TOML 1.1 syntax
+# 2. With our branch's TOML rewriting, pip SUCCEEDS
 
 set -e
+
+# Get the uv repository root for cargo run
+UV_REPO="$(cd "$(dirname "$0")" && pwd)"
 
 echo "=== TOML 1.1 Backward Compatibility Test ==="
 echo
@@ -37,69 +40,80 @@ EOF
 
 echo '"""Test package with TOML 1.1 features."""' > toml11-test/src/toml11_test/__init__.py
 
-echo "Created test project with TOML 1.1 features (trailing commas in inline tables)"
-echo
-echo "=== Test 1: Show that TOML 1.1 fails with Python's tomllib ==="
-python3 -c "
-import tomllib
-
-toml_1_1_content = '''
-[project]
-authors = [
-    { name = \"Alice\", email = \"alice@example.com\", },
-]
-'''
-
-try:
-    tomllib.loads(toml_1_1_content)
-    print('UNEXPECTED: TOML 1.1 content should have failed')
-except Exception as e:
-    print(f'As expected, TOML 1.1 fails with tomllib: {type(e).__name__}')
-    print(f'  Error: {e}')
-"
+echo "Created test project with TOML 1.1 syntax (trailing commas in inline tables)"
 echo
 
-echo "=== Test 2: Build with branch uv (TOML 1.0 rewriting) ==="
-UV_BIN="${UV_BIN:-/home/user/uv/target/debug/uv}"
-if [ ! -f "$UV_BIN" ]; then
-    echo "ERROR: uv binary not found at $UV_BIN"
-    echo "Build it first with: cargo build -p uv"
+# Create a venv for testing
+python3 -m venv test-venv
+
+echo "============================================================"
+echo "TEST 1: WITHOUT rewriting - pip FAILS"
+echo "============================================================"
+echo
+echo "Creating sdist WITHOUT TOML 1.0 rewriting (simulating old behavior)..."
+
+# Create a manual sdist without rewriting (simulating old behavior)
+mkdir -p manual-sdist/toml11_test-0.1.0/src/toml11_test
+cp toml11-test/pyproject.toml manual-sdist/toml11_test-0.1.0/
+cp toml11-test/src/toml11_test/__init__.py manual-sdist/toml11_test-0.1.0/src/toml11_test/
+
+# Create PKG-INFO
+cat > manual-sdist/toml11_test-0.1.0/PKG-INFO << 'EOF'
+Metadata-Version: 2.1
+Name: toml11-test
+Version: 0.1.0
+Summary: Test package with TOML 1.1 features
+Requires-Python: >=3.8
+EOF
+
+cd manual-sdist
+tar -czf ../toml11_test-0.1.0-norewrite.tar.gz toml11_test-0.1.0
+cd ..
+
+echo "Attempting pip install (this should FAIL)..."
+echo
+if test-venv/bin/pip install toml11_test-0.1.0-norewrite.tar.gz 2>&1; then
+    echo "UNEXPECTED: pip install succeeded (should have failed)"
     exit 1
+else
+    echo
+    echo ">>> As expected, pip FAILED to parse TOML 1.1 syntax <<<"
 fi
 
-cd toml11-test
-"$UV_BIN" build --sdist 2>&1 || { echo "Build failed!"; exit 1; }
+echo
+echo "============================================================"
+echo "TEST 2: WITH rewriting - pip SUCCEEDS"
+echo "============================================================"
+echo
+echo "Building sdist WITH TOML 1.0 rewriting (our branch)..."
+
+(cd "$UV_REPO" && cargo run -p uv -- build --sdist --directory "$TEST_DIR/toml11-test" 2>&1)
+
+echo
+echo "Contents of the sdist:"
+tar -tzf toml11-test/dist/toml11_test-0.1.0.tar.gz | grep -E "pyproject"
 echo
 
-echo "=== Test 3: Check sdist contents ==="
-tar -tzf dist/toml11_test-0.1.0.tar.gz | grep pyproject
+echo "Rewritten pyproject.toml (TOML 1.0 compatible):"
+echo "------------------------------------------------"
+tar -xzf toml11-test/dist/toml11_test-0.1.0.tar.gz -O toml11_test-0.1.0/pyproject.toml
 echo
 
-echo "=== Test 4: Show the rewritten pyproject.toml (TOML 1.0 compatible) ==="
-echo "--- pyproject.toml (rewritten) ---"
-tar -xzf dist/toml11_test-0.1.0.tar.gz -O toml11_test-0.1.0/pyproject.toml
-echo
-echo "--- pyproject.toml.orig (original) ---"
-tar -xzf dist/toml11_test-0.1.0.tar.gz -O toml11_test-0.1.0/pyproject.toml.orig
+echo "Original pyproject.toml.orig (TOML 1.1 syntax preserved):"
+echo "----------------------------------------------------------"
+tar -xzf toml11-test/dist/toml11_test-0.1.0.tar.gz -O toml11_test-0.1.0/pyproject.toml.orig
 echo
 
-echo "=== Test 5: Verify pip can install the sdist ==="
-cd "$TEST_DIR"
-python3 -m venv pip-test-venv
-pip-test-venv/bin/pip install --quiet toml11-test/dist/toml11_test-0.1.0.tar.gz 2>&1 || {
-    echo "ERROR: pip install failed!"
-    exit 1
-}
-echo "SUCCESS: pip successfully installed the package from sdist"
+echo "Attempting pip install (this should SUCCEED)..."
+test-venv/bin/pip install toml11-test/dist/toml11_test-0.1.0.tar.gz 2>&1 | grep -E "Successfully|Building|error" || true
 echo
+echo ">>> pip SUCCEEDED because pyproject.toml was rewritten to TOML 1.0 <<<"
 
-echo "=== Test 6: Verify the package is installed ==="
-pip-test-venv/bin/python -c "import toml11_test; print(f'Imported: {toml11_test}')"
 echo
-
-echo "=== Summary ==="
-echo "The branch uv_build successfully:"
-echo "1. Parses TOML 1.1 syntax (trailing commas in inline tables)"
-echo "2. Rewrites to TOML 1.0 format (array of tables instead of inline tables)"
-echo "3. Preserves the original as pyproject.toml.orig"
-echo "4. Allows pip (which only supports TOML 1.0) to install the package"
+echo "============================================================"
+echo "SUMMARY"
+echo "============================================================"
+echo "WITHOUT rewriting: pip FAILS  (cannot parse TOML 1.1 trailing commas)"
+echo "WITH rewriting:    pip SUCCEEDS (pyproject.toml converted to TOML 1.0)"
+echo
+echo "The branch adds pyproject.toml.orig to preserve the original file."

@@ -8,6 +8,7 @@ use flate2::Compression;
 use flate2::write::GzEncoder;
 use fs_err::File;
 use globset::{Glob, GlobSet};
+use std::ffi::OsStr;
 use std::io;
 use std::io::{BufReader, Cursor, Write};
 use std::path::{Component, Path, PathBuf};
@@ -19,6 +20,11 @@ use uv_fs::Simplified;
 use uv_globfilter::{GlobDirFilter, PortableGlobParser};
 use uv_warnings::warn_user_once;
 use walkdir::WalkDir;
+
+/// The name for the original pyproject.toml file in the source distribution.
+/// This preserves the original file when the pyproject.toml is rewritten
+/// for TOML 1.0 backward compatibility.
+const PYPROJECT_TOML_ORIG: &str = "pyproject.toml.orig";
 
 /// Build a source distribution from the source tree and place it in the output directory.
 pub fn build_source_dist(
@@ -176,6 +182,8 @@ fn source_dist_matcher(
     if settings.default_excludes {
         excludes.extend(DEFAULT_EXCLUDES.iter().map(ToString::to_string));
     }
+    // Exclude pyproject.toml.orig from source tree since we generate our own.
+    excludes.push(PYPROJECT_TOML_ORIG.to_string());
     for exclude in settings.source_exclude {
         // Avoid duplicate entries.
         if !excludes.contains(&exclude) {
@@ -230,6 +238,42 @@ fn write_source_dist(
         metadata_email.as_bytes(),
     )?;
 
+    // Read the original pyproject.toml content and rewrite it for TOML 1.0 backward compatibility.
+    // This ensures that older tools (like pip with tomli/tomllib) can parse the pyproject.toml.
+    // We store the original as pyproject.toml.orig for reference.
+    let pyproject_path = source_tree.join("pyproject.toml");
+    let pyproject_contents = fs_err::read_to_string(&pyproject_path)?;
+
+    // Parse the TOML content (supports TOML 1.1) and re-serialize to TOML 1.0 compatible format.
+    // The toml crate's serializer produces TOML 1.0 compatible output by default:
+    // - No multi-line inline tables
+    // - No trailing commas in inline tables
+    // - Standard escape sequences only
+    let pyproject_value: toml::Value =
+        toml::from_str(&pyproject_contents).map_err(|err| Error::Toml(pyproject_path.clone(), err))?;
+    let pyproject_rewritten =
+        toml::to_string_pretty(&pyproject_value).map_err(Error::TomlSerialize)?;
+
+    // Write the original pyproject.toml as pyproject.toml.orig
+    debug!("Adding pyproject.toml.orig to sdist (original file)");
+    writer.write_bytes(
+        &Path::new(&top_level)
+            .join(PYPROJECT_TOML_ORIG)
+            .portable_display()
+            .to_string(),
+        pyproject_contents.as_bytes(),
+    )?;
+
+    // Write the rewritten pyproject.toml (TOML 1.0 compatible)
+    debug!("Adding pyproject.toml to sdist (TOML 1.0 compatible)");
+    writer.write_bytes(
+        &Path::new(&top_level)
+            .join("pyproject.toml")
+            .portable_display()
+            .to_string(),
+        pyproject_rewritten.as_bytes(),
+    )?;
+
     let (include_matcher, exclude_matcher) =
         source_dist_matcher(source_tree, &pyproject_toml, settings, show_warnings)?;
 
@@ -273,6 +317,18 @@ fn write_source_dist(
 
         if !include_matcher.match_path(relative) || exclude_matcher.is_match(relative) {
             trace!("Excluding from sdist: {}", relative.user_display());
+            continue;
+        }
+
+        // Skip pyproject.toml since we handle it separately with TOML 1.0 rewriting.
+        // Also skip pyproject.toml.orig to avoid conflicts with our generated file.
+        if entry.file_name() == OsStr::new("pyproject.toml")
+            || entry.file_name() == OsStr::new(PYPROJECT_TOML_ORIG)
+        {
+            trace!(
+                "Skipping {} (handled separately for TOML 1.0 compatibility)",
+                relative.user_display()
+            );
             continue;
         }
 

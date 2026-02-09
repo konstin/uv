@@ -295,7 +295,17 @@ pub(crate) mod packages {
                 "sha256": "048e05d0f6caeed70d731f3db756d35dcc1f35747c8c403364a8332c630441b8"
             },
             "requires-python": ">=3.8",
+            "size": 85584,
             "upload-time": "2024-02-19T08:36:26.842735Z"
+        }, {
+            "filename": "anyio-4.3.0.tar.gz",
+            "url": "https://files.pythonhosted.org/packages/db/4d/3970183622f0330d3c23d9b8a5f52e365e50381fd484d08e3285104333d3/anyio-4.3.0.tar.gz",
+            "hashes": {
+                "sha256": "f75253795a87df48568485fd18cdd2a3fa5c4f7c5be8e5e36637733fce06fed6"
+            },
+            "requires-python": ">=3.8",
+            "size": 159642,
+            "upload-time": "2024-02-19T08:36:28.641Z"
         }])
     }
 
@@ -307,7 +317,17 @@ pub(crate) mod packages {
                 "sha256": "c05567e9c24a6b9faaa835c4821bad0590fbb9d5779e7caa6e1cc4978e7eb24f"
             },
             "requires-python": ">=3.5",
+            "size": 61567,
             "upload-time": "2023-11-25T15:40:52.604388Z"
+        }, {
+            "filename": "idna-3.6.tar.gz",
+            "url": "https://files.pythonhosted.org/packages/bf/3f/ea4b9117521a1e9c50344b909be7886dd00a519552724809bb1f486986c2/idna-3.6.tar.gz",
+            "hashes": {
+                "sha256": "9ecdbbd083b06798ae1e86adcbfe8ab1479cf864e4ee30fe4e46a003d12491ca"
+            },
+            "requires-python": ">=3.5",
+            "size": 175426,
+            "upload-time": "2023-11-25T15:40:54.902Z"
         }])
     }
 
@@ -319,7 +339,17 @@ pub(crate) mod packages {
                 "sha256": "2f6da418d1f1e0fddd844478f41680e794e6051915791a034ff65e5f100525a2"
             },
             "requires-python": ">=3.7",
+            "size": 10235,
             "upload-time": "2024-02-25T23:20:01.196159Z"
+        }, {
+            "filename": "sniffio-1.3.1.tar.gz",
+            "url": "https://files.pythonhosted.org/packages/a2/87/a6771e1546d97e7e041b6ae58d80074f81b7d5121207425c964ddf5cfdbd/sniffio-1.3.1.tar.gz",
+            "hashes": {
+                "sha256": "f4324edc670a0f49750a81b895f35c3adb843cca46f0530f79fc1babb23789dc"
+            },
+            "requires-python": ">=3.7",
+            "size": 20372,
+            "upload-time": "2024-02-25T23:20:04.057Z"
         }])
     }
 
@@ -331,7 +361,17 @@ pub(crate) mod packages {
                 "sha256": "69b1a937c3a517342112fb4c6df7e72fc39a38e7891a5730ed4985b5214b5475"
             },
             "requires-python": ">=3.8",
+            "size": 33926,
             "upload-time": "2024-02-25T22:12:47.720766Z"
+        }, {
+            "filename": "typing_extensions-4.10.0.tar.gz",
+            "url": "https://files.pythonhosted.org/packages/16/3a/0d26ce356c7465a19c9ea8814b960f8a36c3b0d07c323176620b7b483e44/typing_extensions-4.10.0.tar.gz",
+            "hashes": {
+                "sha256": "b0abd7c89e8fb96f98db18d86106ff1d90ab692004eb746cf6eda2682f91b3cb"
+            },
+            "requires-python": ">=3.8",
+            "size": 77558,
+            "upload-time": "2024-02-25T22:12:49.693Z"
         }])
     }
 

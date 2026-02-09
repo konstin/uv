@@ -2457,30 +2457,30 @@ mod tests {
     #[test]
     fn test_tracing_url() {
         // No credentials
-        let req = create_request("https://pypi-proxy.fly.dev/basic-auth/simple");
+        let req = create_request("https://example.com/basic-auth/simple");
         assert_eq!(
             tracing_url(&req, None),
-            DisplaySafeUrl::parse("https://pypi-proxy.fly.dev/basic-auth/simple").unwrap()
+            DisplaySafeUrl::parse("https://example.com/basic-auth/simple").unwrap()
         );
 
         let creds = Authentication::from(Credentials::Basic {
             username: Username::new(Some(String::from("user"))),
             password: None,
         });
-        let req = create_request("https://pypi-proxy.fly.dev/basic-auth/simple");
+        let req = create_request("https://example.com/basic-auth/simple");
         assert_eq!(
             tracing_url(&req, Some(&creds)),
-            DisplaySafeUrl::parse("https://user@pypi-proxy.fly.dev/basic-auth/simple").unwrap()
+            DisplaySafeUrl::parse("https://user@example.com/basic-auth/simple").unwrap()
         );
 
         let creds = Authentication::from(Credentials::Basic {
             username: Username::new(Some(String::from("user"))),
             password: Some(Password::new(String::from("password"))),
         });
-        let req = create_request("https://pypi-proxy.fly.dev/basic-auth/simple");
+        let req = create_request("https://example.com/basic-auth/simple");
         assert_eq!(
             tracing_url(&req, Some(&creds)),
-            DisplaySafeUrl::parse("https://user:password@pypi-proxy.fly.dev/basic-auth/simple")
+            DisplaySafeUrl::parse("https://user:password@example.com/basic-auth/simple")
                 .unwrap()
         );
     }

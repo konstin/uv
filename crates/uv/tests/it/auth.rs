@@ -5,17 +5,29 @@ use uv_static::EnvVars;
 
 use uv_test::uv_snapshot;
 
-#[test]
+#[tokio::test]
 #[cfg(feature = "native-auth")]
-fn add_package_native_auth_realm() -> Result<()> {
+async fn add_package_native_auth_realm() -> Result<()> {
+    use crate::mock_index;
+
     let context = uv_test::test_context!("3.12").with_real_home();
+
+    let server = mock_index::start_auth_index(&mock_index::packages::anyio_all()).await;
+    let server_uri = server.uri();
+    let host = server_uri.strip_prefix("http://").unwrap();
+    let index_url = format!("http://{}@{}/simple", mock_index::USERNAME, host);
+
+    let filters = [(host, "[SERVER]")]
+        .into_iter()
+        .chain(context.filters())
+        .collect::<Vec<_>>();
 
     // Clear state before the test
     context
         .auth_logout()
-        .arg("https://pypi-proxy.fly.dev")
+        .arg(&server_uri)
         .arg("--username")
-        .arg("public")
+        .arg(mock_index::USERNAME)
         .env(EnvVars::UV_PREVIEW_FEATURES, "native-auth")
         .status()?;
 
@@ -30,7 +42,7 @@ fn add_package_native_auth_realm() -> Result<()> {
     })?;
 
     // Try to add a package without credentials.
-    uv_snapshot!(context.add().arg("anyio").arg("--default-index").arg("https://public@pypi-proxy.fly.dev/basic-auth/simple")
+    uv_snapshot!(filters, context.add().arg("anyio").arg("--default-index").arg(&index_url)
         .env(EnvVars::UV_PREVIEW_FEATURES, "native-auth"), @r"
     success: false
     exit_code: 1
@@ -40,31 +52,31 @@ fn add_package_native_auth_realm() -> Result<()> {
       × No solution found when resolving dependencies:
       ╰─▶ Because anyio was not found in the package registry and your project depends on anyio, we can conclude that your project's requirements are unsatisfiable.
 
-          hint: An index URL (https://pypi-proxy.fly.dev/basic-auth/simple) could not be queried due to a lack of valid authentication credentials (401 Unauthorized).
+          hint: An index URL (http://[SERVER]/simple) could not be queried due to a lack of valid authentication credentials (401 Unauthorized).
       help: If you want to add the package regardless of the failed resolution, provide the `--frozen` flag to skip locking and syncing.
     "
     );
 
     // Login to the domain
-    uv_snapshot!(context.auth_login()
-        .arg("pypi-proxy.fly.dev")
+    uv_snapshot!(filters, context.auth_login()
+        .arg(&server_uri)
         .arg("--username")
-        .arg("public")
+        .arg(mock_index::USERNAME)
         .arg("--password")
-        .arg("heron")
+        .arg(mock_index::PASSWORD)
         .env(EnvVars::UV_PREVIEW_FEATURES, "native-auth"), @r"
     success: true
     exit_code: 0
     ----- stdout -----
 
     ----- stderr -----
-    Stored credentials for public@https://pypi-proxy.fly.dev/
+    Stored credentials for public@http://[SERVER]/
     "
     );
 
     // Try to add the original package without credentials again. This should use credentials
     // storied in the system keyring.
-    uv_snapshot!(context.add().arg("anyio").arg("--default-index").arg("https://public@pypi-proxy.fly.dev/basic-auth/simple")
+    uv_snapshot!(filters, context.add().arg("anyio").arg("--default-index").arg(&index_url)
         .env(EnvVars::UV_PREVIEW_FEATURES, "native-auth"), @r"
     success: true
     exit_code: 0
@@ -81,22 +93,22 @@ fn add_package_native_auth_realm() -> Result<()> {
     );
 
     // Logout of the domain
-    uv_snapshot!(context.auth_logout()
-        .arg("pypi-proxy.fly.dev")
+    uv_snapshot!(filters, context.auth_logout()
+        .arg(&server_uri)
         .arg("--username")
-        .arg("public")
+        .arg(mock_index::USERNAME)
         .env(EnvVars::UV_PREVIEW_FEATURES, "native-auth"), @r"
     success: true
     exit_code: 0
     ----- stdout -----
 
     ----- stderr -----
-    Removed credentials for public@https://pypi-proxy.fly.dev/
+    Removed credentials for public@http://[SERVER]/
     "
     );
 
     // Authentication should fail again
-    uv_snapshot!(context.add().arg("iniconfig").arg("--default-index").arg("https://public@pypi-proxy.fly.dev/basic-auth/simple")
+    uv_snapshot!(filters, context.add().arg("iniconfig").arg("--default-index").arg(&index_url)
         .env(EnvVars::UV_PREVIEW_FEATURES, "native-auth"), @r"
     success: false
     exit_code: 1
@@ -106,7 +118,7 @@ fn add_package_native_auth_realm() -> Result<()> {
       × No solution found when resolving dependencies:
       ╰─▶ Because iniconfig was not found in the package registry and your project depends on iniconfig, we can conclude that your project's requirements are unsatisfiable.
 
-          hint: An index URL (https://pypi-proxy.fly.dev/basic-auth/simple) could not be queried due to a lack of valid authentication credentials (401 Unauthorized).
+          hint: An index URL (http://[SERVER]/simple) could not be queried due to a lack of valid authentication credentials (401 Unauthorized).
       help: If you want to add the package regardless of the failed resolution, provide the `--frozen` flag to skip locking and syncing.
     "
     );
@@ -114,17 +126,46 @@ fn add_package_native_auth_realm() -> Result<()> {
     Ok(())
 }
 
-#[test]
+#[tokio::test]
 #[cfg(feature = "native-auth")]
-fn add_package_native_auth() -> Result<()> {
+async fn add_package_native_auth() -> Result<()> {
+    use crate::mock_index;
+    use wiremock::MockServer;
+
     let context = uv_test::test_context!("3.12").with_real_home();
+
+    // Mount the index at /basic-auth/simple so that `/simple` stripping leaves `/basic-auth`
+    // (testing index-level credential storage, not domain-level).
+    let server = MockServer::start().await;
+    mock_index::mount_packages_with_auth(
+        &server,
+        "/basic-auth",
+        &mock_index::packages::anyio_all(),
+        mock_index::USERNAME,
+        mock_index::PASSWORD,
+    )
+    .await;
+    mock_index::mount_401_catchall(&server).await;
+
+    let server_uri = server.uri();
+    let host = server_uri.strip_prefix("http://").unwrap();
+    let index_url = format!(
+        "http://{}@{}/basic-auth/simple",
+        mock_index::USERNAME,
+        host
+    );
+
+    let filters = [(host, "[SERVER]")]
+        .into_iter()
+        .chain(context.filters())
+        .collect::<Vec<_>>();
 
     // Clear state before the test
     context
         .auth_logout()
-        .arg("https://pypi-proxy.fly.dev/basic-auth/simple")
+        .arg(&format!("{}/basic-auth/simple", server_uri))
         .arg("--username")
-        .arg("public")
+        .arg(mock_index::USERNAME)
         .env(EnvVars::UV_PREVIEW_FEATURES, "native-auth")
         .status()?;
 
@@ -140,7 +181,7 @@ fn add_package_native_auth() -> Result<()> {
     })?;
 
     // Try to add a package without credentials.
-    uv_snapshot!(context.add().arg("anyio").arg("--default-index").arg("https://public@pypi-proxy.fly.dev/basic-auth/simple")
+    uv_snapshot!(filters, context.add().arg("anyio").arg("--default-index").arg(&index_url)
         .env(EnvVars::UV_PREVIEW_FEATURES, "native-auth"), @r"
     success: false
     exit_code: 1
@@ -150,31 +191,31 @@ fn add_package_native_auth() -> Result<()> {
       × No solution found when resolving dependencies:
       ╰─▶ Because anyio was not found in the package registry and your project depends on anyio, we can conclude that your project's requirements are unsatisfiable.
 
-          hint: An index URL (https://pypi-proxy.fly.dev/basic-auth/simple) could not be queried due to a lack of valid authentication credentials (401 Unauthorized).
+          hint: An index URL (http://[SERVER]/basic-auth/simple) could not be queried due to a lack of valid authentication credentials (401 Unauthorized).
       help: If you want to add the package regardless of the failed resolution, provide the `--frozen` flag to skip locking and syncing.
     "
     );
 
     // Login to the index
-    uv_snapshot!(context.auth_login()
-        .arg("https://pypi-proxy.fly.dev/basic-auth/simple")
+    uv_snapshot!(filters, context.auth_login()
+        .arg(&format!("{}/basic-auth/simple", server_uri))
         .arg("--username")
-        .arg("public")
+        .arg(mock_index::USERNAME)
         .arg("--password")
-        .arg("heron")
+        .arg(mock_index::PASSWORD)
         .env(EnvVars::UV_PREVIEW_FEATURES, "native-auth"), @r"
     success: true
     exit_code: 0
     ----- stdout -----
 
     ----- stderr -----
-    Stored credentials for public@https://pypi-proxy.fly.dev/basic-auth
+    Stored credentials for public@http://[SERVER]/basic-auth
     "
     );
 
     // Try to add the original package without credentials again. This should use
     // credentials storied in the system keyring.
-    uv_snapshot!(context.add().arg("anyio").arg("--default-index").arg("https://public@pypi-proxy.fly.dev/basic-auth/simple")
+    uv_snapshot!(filters, context.add().arg("anyio").arg("--default-index").arg(&index_url)
         .env(EnvVars::UV_PREVIEW_FEATURES, "native-auth"), @r"
     success: true
     exit_code: 0
@@ -191,22 +232,22 @@ fn add_package_native_auth() -> Result<()> {
     );
 
     // Logout of the index
-    uv_snapshot!(context.auth_logout()
-        .arg("https://pypi-proxy.fly.dev/basic-auth/simple")
+    uv_snapshot!(filters, context.auth_logout()
+        .arg(&format!("{}/basic-auth/simple", server_uri))
         .arg("--username")
-        .arg("public")
+        .arg(mock_index::USERNAME)
         .env(EnvVars::UV_PREVIEW_FEATURES, "native-auth"), @r"
     success: true
     exit_code: 0
     ----- stdout -----
 
     ----- stderr -----
-    Removed credentials for public@https://pypi-proxy.fly.dev/basic-auth
+    Removed credentials for public@http://[SERVER]/basic-auth
     "
     );
 
     // Authentication should fail again
-    uv_snapshot!(context.add().arg("iniconfig").arg("--default-index").arg("https://public@pypi-proxy.fly.dev/basic-auth/simple")
+    uv_snapshot!(filters, context.add().arg("iniconfig").arg("--default-index").arg(&index_url)
         .env(EnvVars::UV_PREVIEW_FEATURES, "native-auth"), @r"
     success: false
     exit_code: 1
@@ -216,7 +257,7 @@ fn add_package_native_auth() -> Result<()> {
       × No solution found when resolving dependencies:
       ╰─▶ Because iniconfig was not found in the package registry and your project depends on iniconfig, we can conclude that your project's requirements are unsatisfiable.
 
-          hint: An index URL (https://pypi-proxy.fly.dev/basic-auth/simple) could not be queried due to a lack of valid authentication credentials (401 Unauthorized).
+          hint: An index URL (http://[SERVER]/basic-auth/simple) could not be queried due to a lack of valid authentication credentials (401 Unauthorized).
       help: If you want to add the package regardless of the failed resolution, provide the `--frozen` flag to skip locking and syncing.
     "
     );

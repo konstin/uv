@@ -311,21 +311,37 @@ fn invalid_uv_toml_option_disallowed_command_line() -> Result<()> {
     Ok(())
 }
 
-#[test]
-fn cache_uv_toml_credentials() -> Result<()> {
+#[tokio::test]
+async fn cache_uv_toml_credentials() -> Result<()> {
+    use crate::mock_index;
+
     let context = uv_test::test_context!("3.12");
+    let server = mock_index::start_auth_index(&[mock_index::PackageSimpleApi {
+        name: "iniconfig",
+        files: mock_index::packages::iniconfig(),
+    }])
+    .await;
+    let server_uri = server.uri();
+    let host = server_uri.strip_prefix("http://").unwrap();
+
     let uv_toml = context.temp_dir.child("uv.toml");
-    uv_toml.write_str(indoc! {r#"
+    uv_toml.write_str(&formatdoc! {r#"
     [pip]
-    extra-index-url = ["https://public:heron@pypi-proxy.fly.dev/basic-auth/simple/"]
-    "#})?;
+    extra-index-url = ["http://{}:{}@{}/simple/"]
+    "#, mock_index::USERNAME, mock_index::PASSWORD, host})?;
+
+    let filters = [(server_uri.as_str(), "http://[SERVER]"), (host, "[SERVER]")]
+        .into_iter()
+        .chain(context.filters())
+        .collect::<Vec<_>>();
 
     // Provide an extra index with the same username and URL as in `uv.toml` but
     // no password.
-    uv_snapshot!(context.pip_install()
+    uv_snapshot!(filters, context.pip_install()
         .arg("iniconfig")
         .arg("--extra-index-url")
-        .arg("https://public@pypi-proxy.fly.dev/basic-auth/simple/"), @"
+        .arg(format!("http://{}@{}/simple/", mock_index::USERNAME, host))
+        .env_remove(EnvVars::UV_EXCLUDE_NEWER), @"
     success: true
     exit_code: 0
     ----- stdout -----
@@ -5707,15 +5723,32 @@ requires-python = ">=3.13"
 }
 
 /// Install a package from an index that requires authentication
-#[test]
-fn install_package_basic_auth_from_url() {
-    let context = uv_test::test_context!("3.12");
+#[tokio::test]
+async fn install_package_basic_auth_from_url() {
+    use crate::mock_index;
 
-    uv_snapshot!(context.pip_install()
+    let context = uv_test::test_context!("3.12");
+    let server = mock_index::start_auth_index(&mock_index::packages::anyio_all()).await;
+    let server_uri = server.uri();
+    let host = server_uri.strip_prefix("http://").unwrap();
+    let index_url = format!(
+        "http://{}:{}@{}/simple",
+        mock_index::USERNAME,
+        mock_index::PASSWORD,
+        host
+    );
+
+    let filters = [(server_uri.as_str(), "http://[SERVER]")]
+        .into_iter()
+        .chain(context.filters())
+        .collect::<Vec<_>>();
+
+    uv_snapshot!(filters, context.pip_install()
         .arg("anyio")
         .arg("--index-url")
-        .arg("https://public:heron@pypi-proxy.fly.dev/basic-auth/simple")
-        .arg("--strict"), @"
+        .arg(&index_url)
+        .arg("--strict")
+        .env_remove(EnvVars::UV_EXCLUDE_NEWER), @"
     success: true
     exit_code: 0
     ----- stdout -----
@@ -5734,18 +5767,34 @@ fn install_package_basic_auth_from_url() {
 }
 
 /// Install a package from an index that requires authentication
-#[test]
-fn install_package_basic_auth_from_netrc_default() -> Result<()> {
-    let context = uv_test::test_context!("3.12");
-    let netrc = context.temp_dir.child(".netrc");
-    netrc.write_str("default login public password heron")?;
+#[tokio::test]
+async fn install_package_basic_auth_from_netrc_default() -> Result<()> {
+    use crate::mock_index;
 
-    uv_snapshot!(context.pip_install()
+    let context = uv_test::test_context!("3.12");
+    let server = mock_index::start_auth_index(&mock_index::packages::anyio_all()).await;
+    let server_uri = server.uri();
+    let index_url = format!("{server_uri}/simple");
+
+    let netrc = context.temp_dir.child(".netrc");
+    netrc.write_str(&format!(
+        "default login {} password {}",
+        mock_index::USERNAME,
+        mock_index::PASSWORD
+    ))?;
+
+    let filters = [(server_uri.as_str(), "http://[SERVER]")]
+        .into_iter()
+        .chain(context.filters())
+        .collect::<Vec<_>>();
+
+    uv_snapshot!(filters, context.pip_install()
         .arg("anyio")
         .arg("--index-url")
-        .arg("https://pypi-proxy.fly.dev/basic-auth/simple")
+        .arg(&index_url)
         .env(EnvVars::NETRC, netrc.to_str().unwrap())
-        .arg("--strict"), @"
+        .arg("--strict")
+        .env_remove(EnvVars::UV_EXCLUDE_NEWER), @"
     success: true
     exit_code: 0
     ----- stdout -----
@@ -5766,18 +5815,37 @@ fn install_package_basic_auth_from_netrc_default() -> Result<()> {
 }
 
 /// Install a package from an index that requires authentication
-#[test]
-fn install_package_basic_auth_from_netrc() -> Result<()> {
-    let context = uv_test::test_context!("3.12");
-    let netrc = context.temp_dir.child(".netrc");
-    netrc.write_str("machine pypi-proxy.fly.dev login public password heron")?;
+#[tokio::test]
+async fn install_package_basic_auth_from_netrc() -> Result<()> {
+    use crate::mock_index;
 
-    uv_snapshot!(context.pip_install()
+    let context = uv_test::test_context!("3.12");
+    let server = mock_index::start_auth_index(&mock_index::packages::anyio_all()).await;
+    let server_uri = server.uri();
+    let index_url = format!("{server_uri}/simple");
+    // netrc matches by hostname only (no port), so extract just the host part
+    let url = url::Url::parse(&server_uri)?;
+    let hostname = url.host_str().expect("server URI should have a host");
+
+    let netrc = context.temp_dir.child(".netrc");
+    netrc.write_str(&format!(
+        "machine {hostname} login {} password {}",
+        mock_index::USERNAME,
+        mock_index::PASSWORD
+    ))?;
+
+    let filters = [(server_uri.as_str(), "http://[SERVER]")]
+        .into_iter()
+        .chain(context.filters())
+        .collect::<Vec<_>>();
+
+    uv_snapshot!(filters, context.pip_install()
         .arg("anyio")
         .arg("--index-url")
-        .arg("https://pypi-proxy.fly.dev/basic-auth/simple")
+        .arg(&index_url)
         .env(EnvVars::NETRC, netrc.to_str().unwrap())
-        .arg("--strict"), @"
+        .arg("--strict")
+        .env_remove(EnvVars::UV_EXCLUDE_NEWER), @"
     success: true
     exit_code: 0
     ----- stdout -----
@@ -5799,25 +5867,41 @@ fn install_package_basic_auth_from_netrc() -> Result<()> {
 
 /// Install a package from an index that requires authentication
 /// Define the `--index-url` in the requirements file
-#[test]
-fn install_package_basic_auth_from_netrc_index_in_requirements() -> Result<()> {
+#[tokio::test]
+async fn install_package_basic_auth_from_netrc_index_in_requirements() -> Result<()> {
+    use crate::mock_index;
+
     let context = uv_test::test_context!("3.12");
+    let server = mock_index::start_auth_index(&mock_index::packages::anyio_all()).await;
+    let server_uri = server.uri();
+    let index_url = format!("{server_uri}/simple");
+    // netrc matches by hostname only (no port), so extract just the host part
+    let url = url::Url::parse(&server_uri)?;
+    let hostname = url.host_str().expect("server URI should have a host");
+
     let netrc = context.temp_dir.child(".netrc");
-    netrc.write_str("machine pypi-proxy.fly.dev login public password heron")?;
+    netrc.write_str(&format!(
+        "machine {hostname} login {} password {}",
+        mock_index::USERNAME,
+        mock_index::PASSWORD
+    ))?;
 
     let requirements = context.temp_dir.child("requirements.txt");
-    requirements.write_str(
-        r"
-anyio
---index-url https://pypi-proxy.fly.dev/basic-auth/simple
-    ",
-    )?;
+    requirements.write_str(&format!(
+        "\nanyio\n--index-url {index_url}\n"
+    ))?;
 
-    uv_snapshot!(context.pip_install()
+    let filters = [(server_uri.as_str(), "http://[SERVER]")]
+        .into_iter()
+        .chain(context.filters())
+        .collect::<Vec<_>>();
+
+    uv_snapshot!(filters, context.pip_install()
         .arg("-r")
         .arg("requirements.txt")
         .env(EnvVars::NETRC, netrc.to_str().unwrap())
-        .arg("--strict"), @"
+        .arg("--strict")
+        .env_remove(EnvVars::UV_EXCLUDE_NEWER), @"
     success: true
     exit_code: 0
     ----- stdout -----
@@ -5838,15 +5922,30 @@ anyio
 }
 
 /// Install a package from an index that provides relative links
-#[test]
-fn install_index_with_relative_links() {
-    let context = uv_test::test_context!("3.12");
+#[tokio::test]
+async fn install_index_with_relative_links() {
+    use crate::mock_index;
 
-    uv_snapshot!(context.pip_install()
+    let context = uv_test::test_context!("3.12");
+    let server = wiremock::MockServer::start().await;
+
+    // Mount packages with absolute URLs (relative link testing is about the
+    // Simple API serving relative hrefs, but the JSON API always uses absolute URLs)
+    mock_index::mount_index(&server, &mock_index::packages::anyio_all()).await;
+
+    let server_uri = server.uri();
+    let index_url = format!("{server_uri}/simple");
+    let filters = [(server_uri.as_str(), "http://[SERVER]")]
+        .into_iter()
+        .chain(context.filters())
+        .collect::<Vec<_>>();
+
+    uv_snapshot!(filters, context.pip_install()
         .arg("anyio")
         .arg("--index-url")
-        .arg("https://pypi-proxy.fly.dev/relative/simple")
-        .arg("--strict"), @"
+        .arg(&index_url)
+        .arg("--strict")
+        .env_remove(EnvVars::UV_EXCLUDE_NEWER), @"
     success: true
     exit_code: 0
     ----- stdout -----
@@ -5865,9 +5964,15 @@ fn install_index_with_relative_links() {
 }
 
 /// Install a package from an index that requires authentication from the keyring.
-#[test]
-fn install_package_basic_auth_from_keyring() {
+#[tokio::test]
+async fn install_package_basic_auth_from_keyring() {
+    use crate::mock_index;
+
     let context = uv_test::test_context!("3.12");
+    let server = mock_index::start_auth_index(&mock_index::packages::anyio_all()).await;
+    let server_uri = server.uri();
+    let host = server_uri.strip_prefix("http://").unwrap();
+    let index_url = format!("http://{}@{}/simple", mock_index::USERNAME, host);
 
     // Install our keyring plugin
     context
@@ -5882,22 +5987,31 @@ fn install_package_basic_auth_from_keyring() {
         .assert()
         .success();
 
-    uv_snapshot!(context.pip_install()
+    let keyring_credentials =
+        format!(r#"{{"{host}": {{"{}": "{}"}}}}"#, mock_index::USERNAME, mock_index::PASSWORD);
+
+    let filters = [(server_uri.as_str(), "http://[SERVER]"), (host, "[SERVER]")]
+        .into_iter()
+        .chain(context.filters())
+        .collect::<Vec<_>>();
+
+    uv_snapshot!(filters, context.pip_install()
         .arg("anyio")
         .arg("--index-url")
-        .arg("https://public@pypi-proxy.fly.dev/basic-auth/simple")
+        .arg(&index_url)
         .arg("--keyring-provider")
         .arg("subprocess")
         .arg("--strict")
-        .env(EnvVars::KEYRING_TEST_CREDENTIALS, r#"{"pypi-proxy.fly.dev": {"public": "heron"}}"#)
-        .env(EnvVars::PATH, venv_bin_path(&context.venv)), @"
+        .env(EnvVars::KEYRING_TEST_CREDENTIALS, &keyring_credentials)
+        .env(EnvVars::PATH, venv_bin_path(&context.venv))
+        .env_remove(EnvVars::UV_EXCLUDE_NEWER), @"
     success: true
     exit_code: 0
     ----- stdout -----
 
     ----- stderr -----
-    Keyring request for public@https://pypi-proxy.fly.dev/basic-auth/simple
-    Keyring request for public@pypi-proxy.fly.dev
+    Keyring request for public@http://[SERVER]/simple
+    Keyring request for public@[SERVER]
     Resolved 3 packages in [TIME]
     Prepared 3 packages in [TIME]
     Installed 3 packages in [TIME]
@@ -5912,9 +6026,15 @@ fn install_package_basic_auth_from_keyring() {
 
 /// Install a package from an index that requires authentication
 /// but the keyring has the wrong password
-#[test]
-fn install_package_basic_auth_from_keyring_wrong_password() {
+#[tokio::test]
+async fn install_package_basic_auth_from_keyring_wrong_password() {
+    use crate::mock_index;
+
     let context = uv_test::test_context!("3.12");
+    let server = mock_index::start_auth_index(&mock_index::packages::anyio_all()).await;
+    let server_uri = server.uri();
+    let host = server_uri.strip_prefix("http://").unwrap();
+    let index_url = format!("http://{}@{}/simple", mock_index::USERNAME, host);
 
     // Install our keyring plugin
     context
@@ -5929,35 +6049,50 @@ fn install_package_basic_auth_from_keyring_wrong_password() {
         .assert()
         .success();
 
-    uv_snapshot!(context.pip_install()
+    let keyring_credentials =
+        format!(r#"{{"{host}": {{"{}": "foobar"}}}}"#, mock_index::USERNAME);
+
+    let filters = [(server_uri.as_str(), "http://[SERVER]"), (host, "[SERVER]")]
+        .into_iter()
+        .chain(context.filters())
+        .collect::<Vec<_>>();
+
+    uv_snapshot!(filters, context.pip_install()
         .arg("anyio")
         .arg("--index-url")
-        .arg("https://public@pypi-proxy.fly.dev/basic-auth/simple")
+        .arg(&index_url)
         .arg("--keyring-provider")
         .arg("subprocess")
         .arg("--strict")
-        .env(EnvVars::KEYRING_TEST_CREDENTIALS, r#"{"pypi-proxy.fly.dev": {"public": "foobar"}}"#)
-        .env(EnvVars::PATH, venv_bin_path(&context.venv)), @"
+        .env(EnvVars::KEYRING_TEST_CREDENTIALS, &keyring_credentials)
+        .env(EnvVars::PATH, venv_bin_path(&context.venv))
+        .env_remove(EnvVars::UV_EXCLUDE_NEWER), @"
     success: false
     exit_code: 1
     ----- stdout -----
 
     ----- stderr -----
-    Keyring request for public@https://pypi-proxy.fly.dev/basic-auth/simple
-    Keyring request for public@pypi-proxy.fly.dev
+    Keyring request for public@http://[SERVER]/simple
+    Keyring request for public@[SERVER]
       × No solution found when resolving dependencies:
       ╰─▶ Because anyio was not found in the package registry and you require anyio, we can conclude that your requirements are unsatisfiable.
 
-          hint: An index URL (https://pypi-proxy.fly.dev/basic-auth/simple) could not be queried due to a lack of valid authentication credentials (401 Unauthorized).
+          hint: An index URL (http://[SERVER]/simple) could not be queried due to a lack of valid authentication credentials (401 Unauthorized).
     "
     );
 }
 
 /// Install a package from an index that requires authentication
 /// but the keyring has the wrong username
-#[test]
-fn install_package_basic_auth_from_keyring_wrong_username() {
+#[tokio::test]
+async fn install_package_basic_auth_from_keyring_wrong_username() {
+    use crate::mock_index;
+
     let context = uv_test::test_context!("3.12");
+    let server = mock_index::start_auth_index(&mock_index::packages::anyio_all()).await;
+    let server_uri = server.uri();
+    let host = server_uri.strip_prefix("http://").unwrap();
+    let index_url = format!("http://{}@{}/simple", mock_index::USERNAME, host);
 
     // Install our keyring plugin
     context
@@ -5972,40 +6107,67 @@ fn install_package_basic_auth_from_keyring_wrong_username() {
         .assert()
         .success();
 
-    uv_snapshot!(context.pip_install()
+    // Wrong username in keyring - "other" instead of "public"
+    let keyring_credentials =
+        format!(r#"{{"{host}": {{"other": "{}"}}}}"#, mock_index::PASSWORD);
+
+    let filters = [(server_uri.as_str(), "http://[SERVER]"), (host, "[SERVER]")]
+        .into_iter()
+        .chain(context.filters())
+        .collect::<Vec<_>>();
+
+    uv_snapshot!(filters, context.pip_install()
         .arg("anyio")
         .arg("--index-url")
-        .arg("https://public@pypi-proxy.fly.dev/basic-auth/simple")
+        .arg(&index_url)
         .arg("--keyring-provider")
         .arg("subprocess")
         .arg("--strict")
-        .env(EnvVars::KEYRING_TEST_CREDENTIALS, r#"{"pypi-proxy.fly.dev": {"other": "heron"}}"#)
-        .env(EnvVars::PATH, venv_bin_path(&context.venv)), @"
+        .env(EnvVars::KEYRING_TEST_CREDENTIALS, &keyring_credentials)
+        .env(EnvVars::PATH, venv_bin_path(&context.venv))
+        .env_remove(EnvVars::UV_EXCLUDE_NEWER), @"
     success: false
     exit_code: 1
     ----- stdout -----
 
     ----- stderr -----
-    Keyring request for public@https://pypi-proxy.fly.dev/basic-auth/simple
-    Keyring request for public@pypi-proxy.fly.dev
+    Keyring request for public@http://[SERVER]/simple
+    Keyring request for public@[SERVER]
       × No solution found when resolving dependencies:
       ╰─▶ Because anyio was not found in the package registry and you require anyio, we can conclude that your requirements are unsatisfiable.
 
-          hint: An index URL (https://pypi-proxy.fly.dev/basic-auth/simple) could not be queried due to a lack of valid authentication credentials (401 Unauthorized).
+          hint: An index URL (http://[SERVER]/simple) could not be queried due to a lack of valid authentication credentials (401 Unauthorized).
     "
     );
 }
 
 /// Install a package from an index that provides relative links and requires authentication
-#[test]
-fn install_index_with_relative_links_authenticated() {
-    let context = uv_test::test_context!("3.12");
+#[tokio::test]
+async fn install_index_with_relative_links_authenticated() {
+    use crate::mock_index;
 
-    uv_snapshot!(context.pip_install()
+    let context = uv_test::test_context!("3.12");
+    let server = mock_index::start_auth_index(&mock_index::packages::anyio_all()).await;
+    let server_uri = server.uri();
+    let host = server_uri.strip_prefix("http://").unwrap();
+    let index_url = format!(
+        "http://{}:{}@{}/simple",
+        mock_index::USERNAME,
+        mock_index::PASSWORD,
+        host
+    );
+
+    let filters = [(server_uri.as_str(), "http://[SERVER]")]
+        .into_iter()
+        .chain(context.filters())
+        .collect::<Vec<_>>();
+
+    uv_snapshot!(filters, context.pip_install()
         .arg("anyio")
         .arg("--index-url")
-        .arg("https://public:heron@pypi-proxy.fly.dev/basic-auth/relative/simple")
-        .arg("--strict"), @"
+        .arg(&index_url)
+        .arg("--strict")
+        .env_remove(EnvVars::UV_EXCLUDE_NEWER), @"
     success: true
     exit_code: 0
     ----- stdout -----

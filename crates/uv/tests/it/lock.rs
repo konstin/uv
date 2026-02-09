@@ -5,6 +5,7 @@ use indoc::{formatdoc, indoc};
 use insta::assert_snapshot;
 use std::io::BufReader;
 use url::Url;
+use wiremock::MockServer;
 
 use uv_fs::Simplified;
 use uv_static::EnvVars;
@@ -9435,9 +9436,22 @@ fn lock_peer_member() -> Result<()> {
 }
 
 /// Lock a workspace in which a member defines an explicit index that requires authentication.
-#[test]
-fn lock_index_workspace_member() -> Result<()> {
+#[tokio::test]
+async fn lock_index_workspace_member() -> Result<()> {
+    use crate::mock_index;
+
     let context = uv_test::test_context!("3.12");
+    let server = mock_index::start_auth_index(&[mock_index::PackageSimpleApi {
+        name: "iniconfig",
+        files: mock_index::packages::iniconfig(),
+    }])
+    .await;
+    let server_uri = server.uri();
+
+    let filters = [(server_uri.as_str(), "http://[SERVER]")]
+        .into_iter()
+        .chain(context.filters())
+        .collect::<Vec<_>>();
 
     let pyproject_toml = context.temp_dir.child("pyproject.toml");
     pyproject_toml.write_str(
@@ -9460,7 +9474,7 @@ fn lock_index_workspace_member() -> Result<()> {
     fs_err::create_dir_all(&child)?;
 
     let pyproject_toml = child.child("pyproject.toml");
-    pyproject_toml.write_str(
+    pyproject_toml.write_str(&format!(
         r#"
         [project]
         name = "child"
@@ -9470,20 +9484,21 @@ fn lock_index_workspace_member() -> Result<()> {
 
         [[tool.uv.index]]
         name = "my-index"
-        url = "https://pypi-proxy.fly.dev/basic-auth/simple"
+        url = "{server_uri}/simple"
         explicit = true
 
         [tool.uv.sources]
-        iniconfig = { index = "my-index" }
+        iniconfig = {{ index = "my-index" }}
 
         [build-system]
         requires = ["setuptools>=42"]
         build-backend = "setuptools.build_meta"
         "#,
-    )?;
+    ))?;
 
     // Locking without the necessary credentials should fail.
-    uv_snapshot!(context.filters(), context.lock(), @"
+    uv_snapshot!(filters, context.lock()
+        .env_remove(EnvVars::UV_EXCLUDE_NEWER), @"
     success: false
     exit_code: 1
     ----- stdout -----
@@ -9494,9 +9509,10 @@ fn lock_index_workspace_member() -> Result<()> {
           And because your workspace requires child, we can conclude that your workspace's requirements are unsatisfiable.
     ");
 
-    uv_snapshot!(context.filters(), context.lock()
-        .env(EnvVars::UV_INDEX_MY_INDEX_USERNAME, "public")
-        .env(EnvVars::UV_INDEX_MY_INDEX_PASSWORD, "heron"), @"
+    uv_snapshot!(filters, context.lock()
+        .env(EnvVars::UV_INDEX_MY_INDEX_USERNAME, mock_index::USERNAME)
+        .env(EnvVars::UV_INDEX_MY_INDEX_PASSWORD, mock_index::PASSWORD)
+        .env_remove(EnvVars::UV_EXCLUDE_NEWER), @"
     success: true
     exit_code: 0
     ----- stdout -----
@@ -9508,16 +9524,13 @@ fn lock_index_workspace_member() -> Result<()> {
     let lock = fs_err::read_to_string(context.temp_dir.join("uv.lock")).unwrap();
 
     insta::with_settings!({
-        filters => context.filters(),
+        filters => filters.clone(),
     }, {
         assert_snapshot!(
             lock, @r#"
         version = 1
         revision = 3
         requires-python = ">=3.12"
-
-        [options]
-        exclude-newer = "2024-03-25T00:00:00Z"
 
         [manifest]
         members = [
@@ -9534,15 +9547,15 @@ fn lock_index_workspace_member() -> Result<()> {
         ]
 
         [package.metadata]
-        requires-dist = [{ name = "iniconfig", specifier = ">=2", index = "https://pypi-proxy.fly.dev/basic-auth/simple" }]
+        requires-dist = [{ name = "iniconfig", specifier = ">=2", index = "http://[SERVER]/simple" }]
 
         [[package]]
         name = "iniconfig"
         version = "2.0.0"
-        source = { registry = "https://pypi-proxy.fly.dev/basic-auth/simple" }
-        sdist = { url = "https://pypi-proxy.fly.dev/basic-auth/files/packages/d7/4b/cbd8e699e64a6f16ca3a8220661b5f83792b3017d0f79807cb8708d33913/iniconfig-2.0.0.tar.gz", hash = "sha256:2d91e135bf72d31a410b17c16da610a82cb55f6b0477d1a902134b24a455b8b3", size = 4646, upload-time = "2023-01-07T11:08:11.254Z" }
+        source = { registry = "http://[SERVER]/simple" }
+        sdist = { url = "https://files.pythonhosted.org/packages/d7/4b/cbd8e699e64a6f16ca3a8220661b5f83792b3017d0f79807cb8708d33913/iniconfig-2.0.0.tar.gz", hash = "sha256:2d91e135bf72d31a410b17c16da610a82cb55f6b0477d1a902134b24a455b8b3", size = 4646, upload-time = "2023-01-07T11:08:11.254Z" }
         wheels = [
-            { url = "https://pypi-proxy.fly.dev/basic-auth/files/packages/ef/a6/62565a6e1cf69e10f5727360368e451d4b7f58beeac6173dc9db836a5b46/iniconfig-2.0.0-py3-none-any.whl", hash = "sha256:b6a85871a79d2e3b22d2d1b94ac2824226a63c6b741c88f7ae975f18b6778374", size = 5892, upload-time = "2023-01-07T11:08:09.864Z" },
+            { url = "https://files.pythonhosted.org/packages/ef/a6/62565a6e1cf69e10f5727360368e451d4b7f58beeac6173dc9db836a5b46/iniconfig-2.0.0-py3-none-any.whl", hash = "sha256:b6a85871a79d2e3b22d2d1b94ac2824226a63c6b741c88f7ae975f18b6778374", size = 5892, upload-time = "2023-01-07T11:08:09.864Z" },
         ]
 
         [[package]]
@@ -9560,9 +9573,10 @@ fn lock_index_workspace_member() -> Result<()> {
     });
 
     // Re-run with `--locked`.
-    uv_snapshot!(context.filters(), context.lock()
-        .env(EnvVars::UV_INDEX_MY_INDEX_USERNAME, "public")
-        .env(EnvVars::UV_INDEX_MY_INDEX_PASSWORD, "heron")
+    uv_snapshot!(filters, context.lock()
+        .env(EnvVars::UV_INDEX_MY_INDEX_USERNAME, mock_index::USERNAME)
+        .env(EnvVars::UV_INDEX_MY_INDEX_PASSWORD, mock_index::PASSWORD)
+        .env_remove(EnvVars::UV_EXCLUDE_NEWER)
         .arg("--locked"), @"
     success: true
     exit_code: 0
@@ -9752,8 +9766,10 @@ fn lock_dev_transitive() -> Result<()> {
 }
 
 /// Avoid persisting registry credentials in `uv.lock`.
-#[test]
-fn lock_redact_https() -> Result<()> {
+#[tokio::test]
+async fn lock_redact_https() -> Result<()> {
+    use crate::mock_index;
+
     // This test in particular seems to prompt a link mode warning
     // that occurs when hardlinking fails. In particular, in this test,
     // uv tries to hardlink between `/tmp` and `~/.local`, which on my
@@ -9767,6 +9783,38 @@ fn lock_redact_https() -> Result<()> {
     // directory location during testing.
     let context = uv_test::test_context!("3.12").with_filtered_link_mode_warning();
 
+    // Use iniconfig_local so file URLs point to the mock server (auth required).
+    let server = MockServer::start().await;
+    let server_uri = server.uri();
+    let iniconfig_pkg = mock_index::PackageSimpleApi {
+        name: "iniconfig",
+        files: mock_index::packages::iniconfig_local(&server_uri),
+    };
+    mock_index::mount_auth_index(
+        &server,
+        &[iniconfig_pkg],
+        mock_index::USERNAME,
+        mock_index::PASSWORD,
+    )
+    .await;
+    // Authenticated file requests redirect to real PyPI CDN.
+    mock_index::mount_iniconfig_files_auth(&server, mock_index::USERNAME, mock_index::PASSWORD)
+        .await;
+
+    let host = server_uri.strip_prefix("http://").unwrap();
+    let index_url_with_creds = format!(
+        "http://{}:{}@{}/simple",
+        mock_index::USERNAME,
+        mock_index::PASSWORD,
+        host
+    );
+    let index_url = format!("{server_uri}/simple");
+
+    let filters = [(server_uri.as_str(), "http://[SERVER]")]
+        .into_iter()
+        .chain(context.filters())
+        .collect::<Vec<_>>();
+
     let pyproject_toml = context.temp_dir.child("pyproject.toml");
     pyproject_toml.write_str(
         r#"
@@ -9778,7 +9826,10 @@ fn lock_redact_https() -> Result<()> {
         "#,
     )?;
 
-    uv_snapshot!(context.filters(), context.lock().arg("--index-url").arg("https://public:heron@pypi-proxy.fly.dev/basic-auth/simple"), @"
+    uv_snapshot!(filters, context.lock()
+        .arg("--index-url")
+        .arg(&index_url_with_creds)
+        .env_remove(EnvVars::UV_EXCLUDE_NEWER), @"
     success: true
     exit_code: 0
     ----- stdout -----
@@ -9791,16 +9842,13 @@ fn lock_redact_https() -> Result<()> {
 
     // The lockfile should omit the credentials.
     insta::with_settings!({
-        filters => context.filters(),
+        filters => filters.clone(),
     }, {
         assert_snapshot!(
             lock, @r#"
         version = 1
         revision = 3
         requires-python = ">=3.12"
-
-        [options]
-        exclude-newer = "2024-03-25T00:00:00Z"
 
         [[package]]
         name = "foo"
@@ -9816,17 +9864,19 @@ fn lock_redact_https() -> Result<()> {
         [[package]]
         name = "iniconfig"
         version = "2.0.0"
-        source = { registry = "https://pypi-proxy.fly.dev/basic-auth/simple" }
-        sdist = { url = "https://pypi-proxy.fly.dev/basic-auth/files/packages/d7/4b/cbd8e699e64a6f16ca3a8220661b5f83792b3017d0f79807cb8708d33913/iniconfig-2.0.0.tar.gz", hash = "sha256:2d91e135bf72d31a410b17c16da610a82cb55f6b0477d1a902134b24a455b8b3", size = 4646, upload-time = "2023-01-07T11:08:11.254Z" }
+        source = { registry = "http://[SERVER]/simple" }
+        sdist = { url = "http://[SERVER]/files/packages/d7/4b/cbd8e699e64a6f16ca3a8220661b5f83792b3017d0f79807cb8708d33913/iniconfig-2.0.0.tar.gz", hash = "sha256:2d91e135bf72d31a410b17c16da610a82cb55f6b0477d1a902134b24a455b8b3", size = 4646, upload-time = "2023-01-07T11:08:11.254Z" }
         wheels = [
-            { url = "https://pypi-proxy.fly.dev/basic-auth/files/packages/ef/a6/62565a6e1cf69e10f5727360368e451d4b7f58beeac6173dc9db836a5b46/iniconfig-2.0.0-py3-none-any.whl", hash = "sha256:b6a85871a79d2e3b22d2d1b94ac2824226a63c6b741c88f7ae975f18b6778374", size = 5892, upload-time = "2023-01-07T11:08:09.864Z" },
+            { url = "http://[SERVER]/files/packages/ef/a6/62565a6e1cf69e10f5727360368e451d4b7f58beeac6173dc9db836a5b46/iniconfig-2.0.0-py3-none-any.whl", hash = "sha256:b6a85871a79d2e3b22d2d1b94ac2824226a63c6b741c88f7ae975f18b6778374", size = 5892, upload-time = "2023-01-07T11:08:09.864Z" },
         ]
         "#
         );
     });
 
     // Re-run with `--locked`.
-    uv_snapshot!(context.filters(), context.lock().arg("--locked"), @"
+    uv_snapshot!(filters, context.lock()
+        .arg("--locked")
+        .env_remove(EnvVars::UV_EXCLUDE_NEWER), @"
     success: true
     exit_code: 0
     ----- stdout -----
@@ -9837,33 +9887,45 @@ fn lock_redact_https() -> Result<()> {
 
     // Installing from the lockfile should fail without credentials. Omit the root, so that we fail
     // when installing `iniconfig`, rather than when building `foo`.
-    uv_snapshot!(context.filters(), context.sync().arg("--frozen").arg("--index-url").arg("https://pypi-proxy.fly.dev/basic-auth/simple").arg("--no-install-project"), @"
+    uv_snapshot!(filters, context.sync()
+        .arg("--frozen")
+        .arg("--index-url")
+        .arg(&index_url)
+        .arg("--no-install-project")
+        .env_remove(EnvVars::UV_EXCLUDE_NEWER), @"
     success: false
     exit_code: 1
     ----- stdout -----
 
     ----- stderr -----
       × Failed to download `iniconfig==2.0.0`
-      ├─▶ Failed to fetch: `https://pypi-proxy.fly.dev/basic-auth/files/packages/ef/a6/62565a6e1cf69e10f5727360368e451d4b7f58beeac6173dc9db836a5b46/iniconfig-2.0.0-py3-none-any.whl`
-      ╰─▶ HTTP status client error (401 Unauthorized) for url (https://pypi-proxy.fly.dev/basic-auth/files/packages/ef/a6/62565a6e1cf69e10f5727360368e451d4b7f58beeac6173dc9db836a5b46/iniconfig-2.0.0-py3-none-any.whl)
+      ├─▶ Failed to fetch: `http://[SERVER]/files/packages/ef/a6/62565a6e1cf69e10f5727360368e451d4b7f58beeac6173dc9db836a5b46/iniconfig-2.0.0-py3-none-any.whl`
+      ╰─▶ HTTP status client error (401 Unauthorized) for url (http://[SERVER]/files/packages/ef/a6/62565a6e1cf69e10f5727360368e451d4b7f58beeac6173dc9db836a5b46/iniconfig-2.0.0-py3-none-any.whl)
       help: `iniconfig` (v2.0.0) was included because `foo` (v0.1.0) depends on `iniconfig`
     ");
 
     // Installing from the lockfile should fail without an index.
-    uv_snapshot!(context.filters(), context.sync().arg("--frozen").arg("--no-install-project"), @"
+    uv_snapshot!(filters, context.sync()
+        .arg("--frozen")
+        .arg("--no-install-project")
+        .env_remove(EnvVars::UV_EXCLUDE_NEWER), @"
     success: false
     exit_code: 1
     ----- stdout -----
 
     ----- stderr -----
       × Failed to download `iniconfig==2.0.0`
-      ├─▶ Failed to fetch: `https://pypi-proxy.fly.dev/basic-auth/files/packages/ef/a6/62565a6e1cf69e10f5727360368e451d4b7f58beeac6173dc9db836a5b46/iniconfig-2.0.0-py3-none-any.whl`
-      ╰─▶ HTTP status client error (401 Unauthorized) for url (https://pypi-proxy.fly.dev/basic-auth/files/packages/ef/a6/62565a6e1cf69e10f5727360368e451d4b7f58beeac6173dc9db836a5b46/iniconfig-2.0.0-py3-none-any.whl)
+      ├─▶ Failed to fetch: `http://[SERVER]/files/packages/ef/a6/62565a6e1cf69e10f5727360368e451d4b7f58beeac6173dc9db836a5b46/iniconfig-2.0.0-py3-none-any.whl`
+      ╰─▶ HTTP status client error (401 Unauthorized) for url (http://[SERVER]/files/packages/ef/a6/62565a6e1cf69e10f5727360368e451d4b7f58beeac6173dc9db836a5b46/iniconfig-2.0.0-py3-none-any.whl)
       help: `iniconfig` (v2.0.0) was included because `foo` (v0.1.0) depends on `iniconfig`
     ");
 
     // Installing from the lockfile should succeed when credentials are included on the command-line.
-    uv_snapshot!(context.filters(), context.sync().arg("--frozen").arg("--index-url").arg("https://public:heron@pypi-proxy.fly.dev/basic-auth/simple"), @"
+    uv_snapshot!(filters, context.sync()
+        .arg("--frozen")
+        .arg("--index-url")
+        .arg(&index_url_with_creds)
+        .env_remove(EnvVars::UV_EXCLUDE_NEWER), @"
     success: true
     exit_code: 0
     ----- stdout -----
@@ -9875,7 +9937,10 @@ fn lock_redact_https() -> Result<()> {
     ");
 
     // A subsequent sync will succeed because the credentials are in uv's request cache.
-    uv_snapshot!(context.filters(), context.sync().arg("--frozen").arg("--reinstall"), @"
+    uv_snapshot!(filters, context.sync()
+        .arg("--frozen")
+        .arg("--reinstall")
+        .env_remove(EnvVars::UV_EXCLUDE_NEWER), @"
     success: true
     exit_code: 0
     ----- stdout -----
@@ -9888,20 +9953,30 @@ fn lock_redact_https() -> Result<()> {
     ");
 
     // Installing without credentials will fail without a cache.
-    uv_snapshot!(context.filters(), context.sync().arg("--frozen").arg("--reinstall").arg("--no-cache").arg("--no-install-project"), @"
+    uv_snapshot!(filters, context.sync()
+        .arg("--frozen")
+        .arg("--reinstall")
+        .arg("--no-cache")
+        .arg("--no-install-project")
+        .env_remove(EnvVars::UV_EXCLUDE_NEWER), @"
     success: false
     exit_code: 1
     ----- stdout -----
 
     ----- stderr -----
       × Failed to download `iniconfig==2.0.0`
-      ├─▶ Failed to fetch: `https://pypi-proxy.fly.dev/basic-auth/files/packages/ef/a6/62565a6e1cf69e10f5727360368e451d4b7f58beeac6173dc9db836a5b46/iniconfig-2.0.0-py3-none-any.whl`
-      ╰─▶ HTTP status client error (401 Unauthorized) for url (https://pypi-proxy.fly.dev/basic-auth/files/packages/ef/a6/62565a6e1cf69e10f5727360368e451d4b7f58beeac6173dc9db836a5b46/iniconfig-2.0.0-py3-none-any.whl)
+      ├─▶ Failed to fetch: `http://[SERVER]/files/packages/ef/a6/62565a6e1cf69e10f5727360368e451d4b7f58beeac6173dc9db836a5b46/iniconfig-2.0.0-py3-none-any.whl`
+      ╰─▶ HTTP status client error (401 Unauthorized) for url (http://[SERVER]/files/packages/ef/a6/62565a6e1cf69e10f5727360368e451d4b7f58beeac6173dc9db836a5b46/iniconfig-2.0.0-py3-none-any.whl)
       help: `iniconfig` (v2.0.0) was included because `foo` (v0.1.0) depends on `iniconfig`
     ");
 
-    // Installing with credentials from with `UV_INDEX_URL` should succeed.
-    uv_snapshot!(context.filters(), context.sync().arg("--frozen").arg("--reinstall").arg("--no-cache").env(EnvVars::UV_INDEX_URL, "https://public:heron@pypi-proxy.fly.dev/basic-auth/simple"), @"
+    // Installing with credentials from `UV_INDEX_URL` should succeed.
+    uv_snapshot!(filters, context.sync()
+        .arg("--frozen")
+        .arg("--reinstall")
+        .arg("--no-cache")
+        .env(EnvVars::UV_INDEX_URL, &index_url_with_creds)
+        .env_remove(EnvVars::UV_EXCLUDE_NEWER), @"
     success: true
     exit_code: 0
     ----- stdout -----
@@ -9914,7 +9989,7 @@ fn lock_redact_https() -> Result<()> {
     ");
 
     let pyproject_toml = context.temp_dir.child("pyproject.toml");
-    pyproject_toml.write_str(
+    pyproject_toml.write_str(&format!(
         r#"
         [project]
         name = "foo"
@@ -9923,13 +9998,17 @@ fn lock_redact_https() -> Result<()> {
         dependencies = ["iniconfig"]
 
         [tool.uv]
-        index-url = "https://public:heron@pypi-proxy.fly.dev/basic-auth/simple"
+        index-url = "{index_url_with_creds}"
         "#,
-    )?;
+    ))?;
 
     // Installing from the lockfile should succeed when credentials are included via
     // `pyproject.toml`.
-    uv_snapshot!(context.filters(), context.sync().arg("--frozen").arg("--reinstall").arg("--no-cache"), @"
+    uv_snapshot!(filters, context.sync()
+        .arg("--frozen")
+        .arg("--reinstall")
+        .arg("--no-cache")
+        .env_remove(EnvVars::UV_EXCLUDE_NEWER), @"
     success: true
     exit_code: 0
     ----- stdout -----
@@ -10276,12 +10355,25 @@ fn lock_redact_git_pep508_non_project() -> Result<()> {
     Ok(())
 }
 
-#[test]
-fn lock_redact_index_sources() -> Result<()> {
+#[tokio::test]
+async fn lock_redact_index_sources() -> Result<()> {
+    use crate::mock_index;
+
     let context = uv_test::test_context!("3.12").with_filtered_link_mode_warning();
+    let server = mock_index::start_auth_index(&[mock_index::PackageSimpleApi {
+        name: "iniconfig",
+        files: mock_index::packages::iniconfig(),
+    }])
+    .await;
+    let server_uri = server.uri();
+
+    let filters = [(server_uri.as_str(), "http://[SERVER]")]
+        .into_iter()
+        .chain(context.filters())
+        .collect::<Vec<_>>();
 
     let pyproject_toml = context.temp_dir.child("pyproject.toml");
-    pyproject_toml.write_str(
+    pyproject_toml.write_str(&format!(
         r#"
         [project]
         name = "foo"
@@ -10291,14 +10383,18 @@ fn lock_redact_index_sources() -> Result<()> {
 
         [[tool.uv.index]]
         name = "private"
-        url = "https://public:heron@pypi-proxy.fly.dev/basic-auth/simple"
+        url = "http://{username}:{password}@{host}/simple"
 
         [tool.uv.sources]
-        iniconfig = { index = "private" }
+        iniconfig = {{ index = "private" }}
         "#,
-    )?;
+        username = mock_index::USERNAME,
+        password = mock_index::PASSWORD,
+        host = server_uri.strip_prefix("http://").unwrap(),
+    ))?;
 
-    uv_snapshot!(&context.filters(), context.lock(), @"
+    uv_snapshot!(&filters, context.lock()
+        .env_remove(EnvVars::UV_EXCLUDE_NEWER), @"
     success: true
     exit_code: 0
     ----- stdout -----
@@ -10310,16 +10406,13 @@ fn lock_redact_index_sources() -> Result<()> {
     let lock = context.read("uv.lock");
 
     insta::with_settings!({
-        filters => context.filters(),
+        filters => filters.clone(),
     }, {
         assert_snapshot!(
             lock, @r#"
         version = 1
         revision = 3
         requires-python = ">=3.12"
-
-        [options]
-        exclude-newer = "2024-03-25T00:00:00Z"
 
         [[package]]
         name = "foo"
@@ -10330,22 +10423,24 @@ fn lock_redact_index_sources() -> Result<()> {
         ]
 
         [package.metadata]
-        requires-dist = [{ name = "iniconfig", specifier = ">=2", index = "https://pypi-proxy.fly.dev/basic-auth/simple" }]
+        requires-dist = [{ name = "iniconfig", specifier = ">=2", index = "http://[SERVER]/simple" }]
 
         [[package]]
         name = "iniconfig"
         version = "2.0.0"
-        source = { registry = "https://pypi-proxy.fly.dev/basic-auth/simple" }
-        sdist = { url = "https://pypi-proxy.fly.dev/basic-auth/files/packages/d7/4b/cbd8e699e64a6f16ca3a8220661b5f83792b3017d0f79807cb8708d33913/iniconfig-2.0.0.tar.gz", hash = "sha256:2d91e135bf72d31a410b17c16da610a82cb55f6b0477d1a902134b24a455b8b3", size = 4646, upload-time = "2023-01-07T11:08:11.254Z" }
+        source = { registry = "http://[SERVER]/simple" }
+        sdist = { url = "https://files.pythonhosted.org/packages/d7/4b/cbd8e699e64a6f16ca3a8220661b5f83792b3017d0f79807cb8708d33913/iniconfig-2.0.0.tar.gz", hash = "sha256:2d91e135bf72d31a410b17c16da610a82cb55f6b0477d1a902134b24a455b8b3", size = 4646, upload-time = "2023-01-07T11:08:11.254Z" }
         wheels = [
-            { url = "https://pypi-proxy.fly.dev/basic-auth/files/packages/ef/a6/62565a6e1cf69e10f5727360368e451d4b7f58beeac6173dc9db836a5b46/iniconfig-2.0.0-py3-none-any.whl", hash = "sha256:b6a85871a79d2e3b22d2d1b94ac2824226a63c6b741c88f7ae975f18b6778374", size = 5892, upload-time = "2023-01-07T11:08:09.864Z" },
+            { url = "https://files.pythonhosted.org/packages/ef/a6/62565a6e1cf69e10f5727360368e451d4b7f58beeac6173dc9db836a5b46/iniconfig-2.0.0-py3-none-any.whl", hash = "sha256:b6a85871a79d2e3b22d2d1b94ac2824226a63c6b741c88f7ae975f18b6778374", size = 5892, upload-time = "2023-01-07T11:08:09.864Z" },
         ]
         "#
         );
     });
 
     // Re-run with `--locked`.
-    uv_snapshot!(&context.filters(), context.lock().arg("--locked"), @"
+    uv_snapshot!(&filters, context.lock()
+        .arg("--locked")
+        .env_remove(EnvVars::UV_EXCLUDE_NEWER), @"
     success: true
     exit_code: 0
     ----- stdout -----
@@ -10354,8 +10449,13 @@ fn lock_redact_index_sources() -> Result<()> {
     Resolved 2 packages in [TIME]
     ");
 
-    // Install from the lockfile.
-    uv_snapshot!(&context.filters(), context.sync().arg("--frozen").arg("--reinstall").arg("--no-cache"), @"
+    // Install from the lockfile. The credentials come from pyproject.toml,
+    // and files are fetched from real PyPI CDN (no auth needed for files).
+    uv_snapshot!(&filters, context.sync()
+        .arg("--frozen")
+        .arg("--reinstall")
+        .arg("--no-cache")
+        .env_remove(EnvVars::UV_EXCLUDE_NEWER), @"
     success: true
     exit_code: 0
     ----- stdout -----
@@ -10457,12 +10557,25 @@ fn lock_redact_url_sources() -> Result<()> {
 }
 
 /// Pass credentials for a named index via environment variables.
-#[test]
-fn lock_env_credentials() -> Result<()> {
+#[tokio::test]
+async fn lock_env_credentials() -> Result<()> {
+    use crate::mock_index;
+
     let context = uv_test::test_context!("3.12");
+    let server = mock_index::start_auth_index(&[mock_index::PackageSimpleApi {
+        name: "iniconfig",
+        files: mock_index::packages::iniconfig(),
+    }])
+    .await;
+    let server_uri = server.uri();
+
+    let filters = [(server_uri.as_str(), "http://[SERVER]")]
+        .into_iter()
+        .chain(context.filters())
+        .collect::<Vec<_>>();
 
     let pyproject_toml = context.temp_dir.child("pyproject.toml");
-    pyproject_toml.write_str(
+    pyproject_toml.write_str(&format!(
         r#"
         [project]
         name = "foo"
@@ -10472,13 +10585,14 @@ fn lock_env_credentials() -> Result<()> {
 
         [[tool.uv.index]]
         name = "internal-proxy"
-        url = "https://pypi-proxy.fly.dev/basic-auth/simple"
+        url = "{server_uri}/simple"
         default = true
         "#,
-    )?;
+    ))?;
 
     // Without credentials, the resolution should fail.
-    uv_snapshot!(context.filters(), context.lock(), @"
+    uv_snapshot!(filters, context.lock()
+        .env_remove(EnvVars::UV_EXCLUDE_NEWER), @"
     success: false
     exit_code: 1
     ----- stdout -----
@@ -10487,13 +10601,14 @@ fn lock_env_credentials() -> Result<()> {
       × No solution found when resolving dependencies:
       ╰─▶ Because iniconfig was not found in the package registry and your project depends on iniconfig, we can conclude that your project's requirements are unsatisfiable.
 
-          hint: An index URL (https://pypi-proxy.fly.dev/basic-auth/simple) could not be queried due to a lack of valid authentication credentials (401 Unauthorized).
+          hint: An index URL (http://[SERVER]/simple) could not be queried due to a lack of valid authentication credentials (401 Unauthorized).
     ");
 
     // Provide credentials via environment variables.
-    uv_snapshot!(context.filters(), context.lock()
-        .env(EnvVars::index_username("INTERNAL_PROXY"), "public")
-        .env(EnvVars::index_password("INTERNAL_PROXY"), "heron"), @"
+    uv_snapshot!(filters, context.lock()
+        .env(EnvVars::index_username("INTERNAL_PROXY"), mock_index::USERNAME)
+        .env(EnvVars::index_password("INTERNAL_PROXY"), mock_index::PASSWORD)
+        .env_remove(EnvVars::UV_EXCLUDE_NEWER), @"
     success: true
     exit_code: 0
     ----- stdout -----
@@ -10506,16 +10621,13 @@ fn lock_env_credentials() -> Result<()> {
 
     // The lockfile should omit the credentials.
     insta::with_settings!({
-        filters => context.filters(),
+        filters => filters.clone(),
     }, {
         assert_snapshot!(
             lock, @r#"
         version = 1
         revision = 3
         requires-python = ">=3.12"
-
-        [options]
-        exclude-newer = "2024-03-25T00:00:00Z"
 
         [[package]]
         name = "foo"
@@ -10531,10 +10643,10 @@ fn lock_env_credentials() -> Result<()> {
         [[package]]
         name = "iniconfig"
         version = "2.0.0"
-        source = { registry = "https://pypi-proxy.fly.dev/basic-auth/simple" }
-        sdist = { url = "https://pypi-proxy.fly.dev/basic-auth/files/packages/d7/4b/cbd8e699e64a6f16ca3a8220661b5f83792b3017d0f79807cb8708d33913/iniconfig-2.0.0.tar.gz", hash = "sha256:2d91e135bf72d31a410b17c16da610a82cb55f6b0477d1a902134b24a455b8b3", size = 4646, upload-time = "2023-01-07T11:08:11.254Z" }
+        source = { registry = "http://[SERVER]/simple" }
+        sdist = { url = "https://files.pythonhosted.org/packages/d7/4b/cbd8e699e64a6f16ca3a8220661b5f83792b3017d0f79807cb8708d33913/iniconfig-2.0.0.tar.gz", hash = "sha256:2d91e135bf72d31a410b17c16da610a82cb55f6b0477d1a902134b24a455b8b3", size = 4646, upload-time = "2023-01-07T11:08:11.254Z" }
         wheels = [
-            { url = "https://pypi-proxy.fly.dev/basic-auth/files/packages/ef/a6/62565a6e1cf69e10f5727360368e451d4b7f58beeac6173dc9db836a5b46/iniconfig-2.0.0-py3-none-any.whl", hash = "sha256:b6a85871a79d2e3b22d2d1b94ac2824226a63c6b741c88f7ae975f18b6778374", size = 5892, upload-time = "2023-01-07T11:08:09.864Z" },
+            { url = "https://files.pythonhosted.org/packages/ef/a6/62565a6e1cf69e10f5727360368e451d4b7f58beeac6173dc9db836a5b46/iniconfig-2.0.0-py3-none-any.whl", hash = "sha256:b6a85871a79d2e3b22d2d1b94ac2824226a63c6b741c88f7ae975f18b6778374", size = 5892, upload-time = "2023-01-07T11:08:09.864Z" },
         ]
         "#
         );
@@ -10546,12 +10658,42 @@ fn lock_env_credentials() -> Result<()> {
 /// Test solving for packages that are pinned to separate indexes in the same realm.
 /// This requires the credentials to be cached at the URL-level instead of the realm-level, or
 /// credentials for one index will be used for both indexes and the request will fail.
-#[test]
-fn lock_multiple_indexes_same_realm_different_credentials() -> Result<()> {
+#[tokio::test]
+async fn lock_multiple_indexes_same_realm_different_credentials() -> Result<()> {
+    use crate::mock_index;
+
     let context = uv_test::test_context!("3.12");
 
+    let server = MockServer::start().await;
+    let server_uri = server.uri();
+
+    // Mount two different auth-protected indexes on the same server (same realm)
+    // with different credentials.
+    mock_index::mount_packages_with_auth(
+        &server,
+        "/basic-auth-heron",
+        &[mock_index::PackageSimpleApi {
+            name: "iniconfig",
+            files: mock_index::packages::iniconfig(),
+        }],
+        "public",
+        "heron",
+    )
+    .await;
+    mock_index::mount_packages_with_auth(
+        &server,
+        "/basic-auth-eagle",
+        &mock_index::packages::anyio_all(),
+        "public",
+        "eagle",
+    )
+    .await;
+    mock_index::mount_401_catchall(&server).await;
+
+    let host = server_uri.strip_prefix("http://").unwrap();
+
     let pyproject_toml = context.temp_dir.child("pyproject.toml");
-    pyproject_toml.write_str(
+    pyproject_toml.write_str(&format!(
         r#"
         [project]
         name = "foo"
@@ -10560,25 +10702,26 @@ fn lock_multiple_indexes_same_realm_different_credentials() -> Result<()> {
         dependencies = ["iniconfig", "anyio"]
 
         [tool.uv.sources]
-        iniconfig = { index = "internal-proxy-heron" }
-        anyio = { index = "internal-proxy-eagle" }
+        iniconfig = {{ index = "internal-proxy-heron" }}
+        anyio = {{ index = "internal-proxy-eagle" }}
 
         [[tool.uv.index]]
         name = "internal-proxy-heron"
-        url = "https://pypi-proxy.fly.dev/basic-auth-heron/simple"
+        url = "http://public:heron@{host}/basic-auth-heron/simple"
 
         [[tool.uv.index]]
         name = "internal-proxy-eagle"
-        url = "https://pypi-proxy.fly.dev/basic-auth-eagle/simple"
+        url = "http://public:eagle@{host}/basic-auth-eagle/simple"
         "#,
-    )?;
+    ))?;
 
     // Provide credentials via environment variables.
     uv_snapshot!(context.filters(), context.lock()
         .env(EnvVars::index_username("INTERNAL_PROXY_HERON"), "public")
         .env(EnvVars::index_password("INTERNAL_PROXY_HERON"), "heron")
         .env(EnvVars::index_username("INTERNAL_PROXY_EAGLE"), "public")
-        .env(EnvVars::index_password("INTERNAL_PROXY_EAGLE"), "eagle"), @"
+        .env(EnvVars::index_password("INTERNAL_PROXY_EAGLE"), "eagle")
+        .env_remove(EnvVars::UV_EXCLUDE_NEWER), @"
     success: true
     exit_code: 0
     ----- stdout -----
@@ -10592,12 +10735,40 @@ fn lock_multiple_indexes_same_realm_different_credentials() -> Result<()> {
 
 // Same as [`lock_multiple_indexes_same_realm_different_credentials`], but with trailing slashes
 // on the index URL
-#[test]
-fn lock_multiple_indexes_same_realm_different_credentials_trailing_slash() -> Result<()> {
+#[tokio::test]
+async fn lock_multiple_indexes_same_realm_different_credentials_trailing_slash() -> Result<()> {
+    use crate::mock_index;
+
     let context = uv_test::test_context!("3.12");
 
+    let server = MockServer::start().await;
+    let server_uri = server.uri();
+
+    mock_index::mount_packages_with_auth(
+        &server,
+        "/basic-auth-heron",
+        &[mock_index::PackageSimpleApi {
+            name: "iniconfig",
+            files: mock_index::packages::iniconfig(),
+        }],
+        "public",
+        "heron",
+    )
+    .await;
+    mock_index::mount_packages_with_auth(
+        &server,
+        "/basic-auth-eagle",
+        &mock_index::packages::anyio_all(),
+        "public",
+        "eagle",
+    )
+    .await;
+    mock_index::mount_401_catchall(&server).await;
+
+    let host = server_uri.strip_prefix("http://").unwrap();
+
     let pyproject_toml = context.temp_dir.child("pyproject.toml");
-    pyproject_toml.write_str(
+    pyproject_toml.write_str(&format!(
         r#"
         [project]
         name = "foo"
@@ -10606,25 +10777,26 @@ fn lock_multiple_indexes_same_realm_different_credentials_trailing_slash() -> Re
         dependencies = ["iniconfig", "anyio"]
 
         [tool.uv.sources]
-        iniconfig = { index = "internal-proxy-heron" }
-        anyio = { index = "internal-proxy-eagle" }
+        iniconfig = {{ index = "internal-proxy-heron" }}
+        anyio = {{ index = "internal-proxy-eagle" }}
 
         [[tool.uv.index]]
         name = "internal-proxy-heron"
-        url = "https://pypi-proxy.fly.dev/basic-auth-heron/simple/"
+        url = "http://public:heron@{host}/basic-auth-heron/simple/"
 
         [[tool.uv.index]]
         name = "internal-proxy-eagle"
-        url = "https://pypi-proxy.fly.dev/basic-auth-eagle/simple/"
+        url = "http://public:eagle@{host}/basic-auth-eagle/simple/"
         "#,
-    )?;
+    ))?;
 
     // Provide credentials via environment variables.
     uv_snapshot!(context.filters(), context.lock()
         .env(EnvVars::index_username("INTERNAL_PROXY_HERON"), "public")
         .env(EnvVars::index_password("INTERNAL_PROXY_HERON"), "heron")
         .env(EnvVars::index_username("INTERNAL_PROXY_EAGLE"), "public")
-        .env(EnvVars::index_password("INTERNAL_PROXY_EAGLE"), "eagle"), @"
+        .env(EnvVars::index_password("INTERNAL_PROXY_EAGLE"), "eagle")
+        .env_remove(EnvVars::UV_EXCLUDE_NEWER), @"
     success: true
     exit_code: 0
     ----- stdout -----
@@ -10637,12 +10809,35 @@ fn lock_multiple_indexes_same_realm_different_credentials_trailing_slash() -> Re
 }
 
 /// Resolve against an index that uses relative links.
-#[test]
-fn lock_relative_index() -> Result<()> {
+#[tokio::test]
+async fn lock_relative_index() -> Result<()> {
+    use crate::mock_index;
+
     let context = uv_test::test_context!("3.12");
 
+    let server = MockServer::start().await;
+    let server_uri = server.uri();
+
+    // Mount unauthenticated index at /relative/simple with relative file URLs.
+    mock_index::mount_packages(
+        &server,
+        "/relative",
+        &[mock_index::PackageSimpleApi {
+            name: "iniconfig",
+            files: mock_index::packages::iniconfig_relative(),
+        }],
+    )
+    .await;
+    // Relative URLs resolve to /files/packages/... on the same server.
+    mock_index::mount_iniconfig_files(&server).await;
+
+    let filters = [(server_uri.as_str(), "http://[SERVER]")]
+        .into_iter()
+        .chain(context.filters())
+        .collect::<Vec<_>>();
+
     let pyproject_toml = context.temp_dir.child("pyproject.toml");
-    pyproject_toml.write_str(
+    pyproject_toml.write_str(&format!(
         r#"
         [project]
         name = "foo"
@@ -10651,11 +10846,12 @@ fn lock_relative_index() -> Result<()> {
         dependencies = ["iniconfig"]
 
         [tool.uv]
-        index-url = "https://pypi-proxy.fly.dev/relative/simple"
+        index-url = "{server_uri}/relative/simple"
         "#,
-    )?;
+    ))?;
 
-    uv_snapshot!(context.filters(), context.lock(), @"
+    uv_snapshot!(filters, context.lock()
+        .env_remove(EnvVars::UV_EXCLUDE_NEWER), @"
     success: true
     exit_code: 0
     ----- stdout -----
@@ -10667,16 +10863,13 @@ fn lock_relative_index() -> Result<()> {
     let lock = context.read("uv.lock");
 
     insta::with_settings!({
-        filters => context.filters(),
+        filters => filters.clone(),
     }, {
         assert_snapshot!(
             lock, @r#"
         version = 1
         revision = 3
         requires-python = ">=3.12"
-
-        [options]
-        exclude-newer = "2024-03-25T00:00:00Z"
 
         [[package]]
         name = "foo"
@@ -10692,17 +10885,19 @@ fn lock_relative_index() -> Result<()> {
         [[package]]
         name = "iniconfig"
         version = "2.0.0"
-        source = { registry = "https://pypi-proxy.fly.dev/relative/simple" }
-        sdist = { url = "https://pypi-proxy.fly.dev/files/packages/d7/4b/cbd8e699e64a6f16ca3a8220661b5f83792b3017d0f79807cb8708d33913/iniconfig-2.0.0.tar.gz", hash = "sha256:2d91e135bf72d31a410b17c16da610a82cb55f6b0477d1a902134b24a455b8b3", size = 4646, upload-time = "2023-01-07T11:08:11.254Z" }
+        source = { registry = "http://[SERVER]/relative/simple" }
+        sdist = { url = "http://[SERVER]/files/packages/d7/4b/cbd8e699e64a6f16ca3a8220661b5f83792b3017d0f79807cb8708d33913/iniconfig-2.0.0.tar.gz", hash = "sha256:2d91e135bf72d31a410b17c16da610a82cb55f6b0477d1a902134b24a455b8b3", size = 4646, upload-time = "2023-01-07T11:08:11.254Z" }
         wheels = [
-            { url = "https://pypi-proxy.fly.dev/files/packages/ef/a6/62565a6e1cf69e10f5727360368e451d4b7f58beeac6173dc9db836a5b46/iniconfig-2.0.0-py3-none-any.whl", hash = "sha256:b6a85871a79d2e3b22d2d1b94ac2824226a63c6b741c88f7ae975f18b6778374", size = 5892, upload-time = "2023-01-07T11:08:09.864Z" },
+            { url = "http://[SERVER]/files/packages/ef/a6/62565a6e1cf69e10f5727360368e451d4b7f58beeac6173dc9db836a5b46/iniconfig-2.0.0-py3-none-any.whl", hash = "sha256:b6a85871a79d2e3b22d2d1b94ac2824226a63c6b741c88f7ae975f18b6778374", size = 5892, upload-time = "2023-01-07T11:08:09.864Z" },
         ]
         "#
         );
     });
 
     // Re-run with `--locked`.
-    uv_snapshot!(context.filters(), context.lock().arg("--locked"), @"
+    uv_snapshot!(filters, context.lock()
+        .arg("--locked")
+        .env_remove(EnvVars::UV_EXCLUDE_NEWER), @"
     success: true
     exit_code: 0
     ----- stdout -----
@@ -10712,7 +10907,9 @@ fn lock_relative_index() -> Result<()> {
     ");
 
     // Install from the lockfile.
-    uv_snapshot!(context.filters(), context.sync().arg("--frozen"), @"
+    uv_snapshot!(filters, context.sync()
+        .arg("--frozen")
+        .env_remove(EnvVars::UV_EXCLUDE_NEWER), @"
     success: true
     exit_code: 0
     ----- stdout -----
@@ -14419,9 +14616,31 @@ fn normalize_false_marker_requires_dist() -> Result<()> {
 }
 
 /// Change indexes between locking operations.
-#[test]
-fn lock_change_index() -> Result<()> {
+#[tokio::test]
+async fn lock_change_index() -> Result<()> {
+    use crate::mock_index;
+
     let context = uv_test::test_context!("3.12");
+
+    let server = mock_index::start_auth_index(&[mock_index::PackageSimpleApi {
+        name: "iniconfig",
+        files: mock_index::packages::iniconfig(),
+    }])
+    .await;
+    let server_uri = server.uri();
+
+    let host = server_uri.strip_prefix("http://").unwrap();
+    let index_url_with_creds = format!(
+        "http://{}:{}@{}/simple",
+        mock_index::USERNAME,
+        mock_index::PASSWORD,
+        host
+    );
+
+    let filters = [(server_uri.as_str(), "http://[SERVER]")]
+        .into_iter()
+        .chain(context.filters())
+        .collect::<Vec<_>>();
 
     let pyproject_toml = context.temp_dir.child("pyproject.toml");
     pyproject_toml.write_str(
@@ -14434,7 +14653,10 @@ fn lock_change_index() -> Result<()> {
         "#,
     )?;
 
-    uv_snapshot!(context.filters(), context.lock().arg("--index-url").arg("https://public:heron@pypi-proxy.fly.dev/basic-auth/simple"), @"
+    uv_snapshot!(filters, context.lock()
+        .arg("--index-url")
+        .arg(&index_url_with_creds)
+        .env_remove(EnvVars::UV_EXCLUDE_NEWER), @"
     success: true
     exit_code: 0
     ----- stdout -----
@@ -14446,7 +14668,7 @@ fn lock_change_index() -> Result<()> {
     let lock = context.read("uv.lock");
 
     insta::with_settings!({
-        filters => context.filters(),
+        filters => filters.clone(),
     }, {
         assert_snapshot!(
             lock, @r#"
@@ -14454,16 +14676,13 @@ fn lock_change_index() -> Result<()> {
         revision = 3
         requires-python = ">=3.12"
 
-        [options]
-        exclude-newer = "2024-03-25T00:00:00Z"
-
         [[package]]
         name = "iniconfig"
         version = "2.0.0"
-        source = { registry = "https://pypi-proxy.fly.dev/basic-auth/simple" }
-        sdist = { url = "https://pypi-proxy.fly.dev/basic-auth/files/packages/d7/4b/cbd8e699e64a6f16ca3a8220661b5f83792b3017d0f79807cb8708d33913/iniconfig-2.0.0.tar.gz", hash = "sha256:2d91e135bf72d31a410b17c16da610a82cb55f6b0477d1a902134b24a455b8b3", size = 4646, upload-time = "2023-01-07T11:08:11.254Z" }
+        source = { registry = "http://[SERVER]/simple" }
+        sdist = { url = "https://files.pythonhosted.org/packages/d7/4b/cbd8e699e64a6f16ca3a8220661b5f83792b3017d0f79807cb8708d33913/iniconfig-2.0.0.tar.gz", hash = "sha256:2d91e135bf72d31a410b17c16da610a82cb55f6b0477d1a902134b24a455b8b3", size = 4646, upload-time = "2023-01-07T11:08:11.254Z" }
         wheels = [
-            { url = "https://pypi-proxy.fly.dev/basic-auth/files/packages/ef/a6/62565a6e1cf69e10f5727360368e451d4b7f58beeac6173dc9db836a5b46/iniconfig-2.0.0-py3-none-any.whl", hash = "sha256:b6a85871a79d2e3b22d2d1b94ac2824226a63c6b741c88f7ae975f18b6778374", size = 5892, upload-time = "2023-01-07T11:08:09.864Z" },
+            { url = "https://files.pythonhosted.org/packages/ef/a6/62565a6e1cf69e10f5727360368e451d4b7f58beeac6173dc9db836a5b46/iniconfig-2.0.0-py3-none-any.whl", hash = "sha256:b6a85871a79d2e3b22d2d1b94ac2824226a63c6b741c88f7ae975f18b6778374", size = 5892, upload-time = "2023-01-07T11:08:09.864Z" },
         ]
 
         [[package]]
@@ -14480,20 +14699,21 @@ fn lock_change_index() -> Result<()> {
         );
     });
 
-    // Re-run against PyPI.
-    uv_snapshot!(context.filters(), context.lock().arg("--index-url").arg("https://pypi.org/simple"), @"
+    // Re-run against PyPI (with the default `UV_EXCLUDE_NEWER` from the test context).
+    uv_snapshot!(filters, context.lock().arg("--index-url").arg("https://pypi.org/simple"), @"
     success: true
     exit_code: 0
     ----- stdout -----
 
     ----- stderr -----
+    Ignoring existing lockfile due to addition of global exclude newer 2024-03-25T00:00:00Z
     Resolved 2 packages in [TIME]
     ");
 
     let lock = context.read("uv.lock");
 
     insta::with_settings!({
-        filters => context.filters(),
+        filters => filters.clone(),
     }, {
         assert_snapshot!(
             lock, @r#"
@@ -14528,7 +14748,7 @@ fn lock_change_index() -> Result<()> {
     });
 
     // Re-run with `--locked`.
-    uv_snapshot!(context.filters(), context.lock().arg("--locked"), @"
+    uv_snapshot!(filters, context.lock().arg("--locked"), @"
     success: true
     exit_code: 0
     ----- stdout -----

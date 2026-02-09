@@ -4,12 +4,24 @@
 //! for testing authenticated index access.
 
 use serde_json::{json, Value};
-use wiremock::matchers::{basic_auth, method, path_regex};
+use wiremock::matchers::{basic_auth, method, path, path_regex};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 /// Well-known test credentials used by the mock index.
-pub const USERNAME: &str = "public";
-pub const PASSWORD: &str = "heron";
+pub(crate) const USERNAME: &str = "public";
+pub(crate) const PASSWORD: &str = "heron";
+
+/// Real PyPI CDN URL for iniconfig wheel.
+const INICONFIG_WHEEL_URL: &str = "https://files.pythonhosted.org/packages/ef/a6/62565a6e1cf69e10f5727360368e451d4b7f58beeac6173dc9db836a5b46/iniconfig-2.0.0-py3-none-any.whl";
+/// Real PyPI CDN URL for iniconfig sdist.
+const INICONFIG_SDIST_URL: &str = "https://files.pythonhosted.org/packages/d7/4b/cbd8e699e64a6f16ca3a8220661b5f83792b3017d0f79807cb8708d33913/iniconfig-2.0.0.tar.gz";
+
+/// Path on the mock server where iniconfig wheel is served.
+pub(crate) const INICONFIG_WHEEL_PATH: &str =
+    "/files/packages/ef/a6/62565a6e1cf69e10f5727360368e451d4b7f58beeac6173dc9db836a5b46/iniconfig-2.0.0-py3-none-any.whl";
+/// Path on the mock server where iniconfig sdist is served.
+pub(crate) const INICONFIG_SDIST_PATH: &str =
+    "/files/packages/d7/4b/cbd8e699e64a6f16ca3a8220661b5f83792b3017d0f79807cb8708d33913/iniconfig-2.0.0.tar.gz";
 
 /// Create a [`MockServer`] that serves a Simple API index with basic auth.
 ///
@@ -18,15 +30,32 @@ pub const PASSWORD: &str = "heron";
 ///
 /// The returned URL is the base URL of the server (e.g., `http://127.0.0.1:PORT`).
 /// Use `format!("{}/simple", server.uri())` for the index URL.
-pub async fn start_auth_index(packages: &[PackageSimpleApi]) -> MockServer {
+pub(crate) async fn start_auth_index(packages: &[PackageSimpleApi]) -> MockServer {
     let server = MockServer::start().await;
     mount_auth_index(&server, packages, USERNAME, PASSWORD).await;
     server
 }
 
 /// Mount authenticated Simple API endpoints on an existing [`MockServer`].
-pub async fn mount_auth_index(
+///
+/// Mounts package endpoints at `/simple/{name}` and a catch-all 401.
+pub(crate) async fn mount_auth_index(
     server: &MockServer,
+    packages: &[PackageSimpleApi],
+    username: &str,
+    password: &str,
+) {
+    mount_packages_with_auth(server, "", packages, username, password).await;
+    mount_401_catchall(server).await;
+}
+
+/// Mount authenticated Simple API endpoints at a path prefix.
+///
+/// For example, `base_path = "/basic-auth"` mounts at `/basic-auth/simple/{name}`.
+/// An empty string mounts at `/simple/{name}`.
+pub(crate) async fn mount_packages_with_auth(
+    server: &MockServer,
+    base_path: &str,
     packages: &[PackageSimpleApi],
     username: &str,
     password: &str,
@@ -38,10 +67,9 @@ pub async fn mount_auth_index(
             "files": pkg.files,
         });
 
-        // Authenticated response (mounted first, but more specific so matches first)
         Mock::given(method("GET"))
             .and(path_regex(format!(
-                r"^/simple/{name}/?$",
+                r"^{base_path}/simple/{name}/?$",
                 name = pkg.name
             )))
             .and(basic_auth(username, password))
@@ -53,15 +81,34 @@ pub async fn mount_auth_index(
             .await;
     }
 
-    // Catch-all 401 for unauthenticated requests (mounted last, least specific)
+    // Catch-all for authenticated requests to non-existent packages on this index.
+    // Returns 404 so uv knows the package doesn't exist (rather than falling through
+    // to the global 401 catch-all which would be treated as an auth failure).
     Mock::given(method("GET"))
-        .respond_with(ResponseTemplate::new(401))
+        .and(path_regex(format!(r"^{base_path}/simple/.+")))
+        .and(basic_auth(username, password))
+        .respond_with(ResponseTemplate::new(404))
+        .with_priority(200)
         .mount(server)
         .await;
 }
 
 /// Mount unauthenticated Simple API endpoints on a [`MockServer`].
-pub async fn mount_index(server: &MockServer, packages: &[PackageSimpleApi]) {
+///
+/// Mounts package endpoints at `/simple/{name}`.
+pub(crate) async fn mount_index(server: &MockServer, packages: &[PackageSimpleApi]) {
+    mount_packages(server, "", packages).await;
+}
+
+/// Mount unauthenticated Simple API endpoints at a path prefix.
+///
+/// For example, `base_path = "/relative"` mounts at `/relative/simple/{name}`.
+/// An empty string mounts at `/simple/{name}`.
+pub(crate) async fn mount_packages(
+    server: &MockServer,
+    base_path: &str,
+    packages: &[PackageSimpleApi],
+) {
     for pkg in packages {
         let body = json!({
             "meta": {"api-version": "1.1"},
@@ -71,7 +118,7 @@ pub async fn mount_index(server: &MockServer, packages: &[PackageSimpleApi]) {
 
         Mock::given(method("GET"))
             .and(path_regex(format!(
-                r"^/simple/{name}/?$",
+                r"^{base_path}/simple/{name}/?$",
                 name = pkg.name
             )))
             .respond_with(
@@ -83,18 +130,89 @@ pub async fn mount_index(server: &MockServer, packages: &[PackageSimpleApi]) {
     }
 }
 
+/// Mount a catch-all 401 response with `WWW-Authenticate` header.
+///
+/// Uses lowest priority so that more-specific mocks (e.g. file endpoints
+/// mounted later) take precedence.
+pub(crate) async fn mount_401_catchall(server: &MockServer) {
+    Mock::given(method("GET"))
+        .respond_with(
+            ResponseTemplate::new(401)
+                .insert_header("WWW-Authenticate", "Basic realm=\"test\""),
+        )
+        .with_priority(u8::MAX)
+        .mount(server)
+        .await;
+}
+
+/// Mount authenticated file-serving endpoints for iniconfig that redirect to real PyPI CDN.
+///
+/// Authenticated requests get a 302 redirect to the real file URL.
+/// Unauthenticated requests hit the catch-all 401 from [`mount_401_catchall`].
+pub(crate) async fn mount_iniconfig_files_auth(
+    server: &MockServer,
+    username: &str,
+    password: &str,
+) {
+    Mock::given(method("GET"))
+        .and(path(INICONFIG_WHEEL_PATH))
+        .and(basic_auth(username, password))
+        .respond_with(
+            ResponseTemplate::new(302)
+                .insert_header("Location", INICONFIG_WHEEL_URL),
+        )
+        .mount(server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path(INICONFIG_SDIST_PATH))
+        .and(basic_auth(username, password))
+        .respond_with(
+            ResponseTemplate::new(302)
+                .insert_header("Location", INICONFIG_SDIST_URL),
+        )
+        .mount(server)
+        .await;
+}
+
+/// Mount unauthenticated file-serving endpoints for iniconfig that redirect to real PyPI CDN.
+pub(crate) async fn mount_iniconfig_files(server: &MockServer) {
+    Mock::given(method("GET"))
+        .and(path(INICONFIG_WHEEL_PATH))
+        .respond_with(
+            ResponseTemplate::new(302)
+                .insert_header("Location", INICONFIG_WHEEL_URL),
+        )
+        .mount(server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path(INICONFIG_SDIST_PATH))
+        .respond_with(
+            ResponseTemplate::new(302)
+                .insert_header("Location", INICONFIG_SDIST_URL),
+        )
+        .mount(server)
+        .await;
+}
+
 /// Description of a package in the Simple API.
-pub struct PackageSimpleApi {
-    pub name: &'static str,
-    pub files: Value,
+pub(crate) struct PackageSimpleApi {
+    pub(crate) name: &'static str,
+    pub(crate) files: Value,
 }
 
 /// Pre-built Simple API file entries for common test packages.
-/// File URLs point to real PyPI, so no local wheel fixtures are needed.
-pub mod packages {
+///
+/// Functions named `*_local` return file URLs relative to the mock server root,
+/// for use with [`mount_iniconfig_files_auth`] / [`mount_iniconfig_files`].
+///
+/// Other functions return file URLs pointing to real PyPI CDN.
+pub(crate) mod packages {
     use serde_json::{json, Value};
 
-    pub fn iniconfig() -> Value {
+    /// Iniconfig with file URLs pointing to real PyPI CDN.
+    pub(crate) fn iniconfig() -> Value {
         json!([{
             "filename": "iniconfig-2.0.0-py3-none-any.whl",
             "url": "https://files.pythonhosted.org/packages/ef/a6/62565a6e1cf69e10f5727360368e451d4b7f58beeac6173dc9db836a5b46/iniconfig-2.0.0-py3-none-any.whl",
@@ -102,6 +220,7 @@ pub mod packages {
                 "sha256": "b6a85871a79d2e3b22d2d1b94ac2824226a63c6b741c88f7ae975f18b6778374"
             },
             "requires-python": ">=3.7",
+            "size": 5892,
             "upload-time": "2023-01-07T11:08:09.864484Z"
         }, {
             "filename": "iniconfig-2.0.0.tar.gz",
@@ -110,11 +229,65 @@ pub mod packages {
                 "sha256": "2d91e135bf72d31a410b17c16da610a82cb55f6b0477d1a902134b24a455b8b3"
             },
             "requires-python": ">=3.7",
+            "size": 4646,
             "upload-time": "2023-01-07T11:08:11.254770Z"
         }])
     }
 
-    pub fn anyio() -> Value {
+    /// Iniconfig with file URLs relative to the mock server root.
+    ///
+    /// Use this with [`super::mount_iniconfig_files_auth`] or [`super::mount_iniconfig_files`]
+    /// when tests need to verify file download authentication behavior.
+    pub(crate) fn iniconfig_local(server_uri: &str) -> Value {
+        json!([{
+            "filename": "iniconfig-2.0.0-py3-none-any.whl",
+            "url": format!("{server_uri}{}", super::INICONFIG_WHEEL_PATH),
+            "hashes": {
+                "sha256": "b6a85871a79d2e3b22d2d1b94ac2824226a63c6b741c88f7ae975f18b6778374"
+            },
+            "requires-python": ">=3.7",
+            "size": 5892,
+            "upload-time": "2023-01-07T11:08:09.864484Z"
+        }, {
+            "filename": "iniconfig-2.0.0.tar.gz",
+            "url": format!("{server_uri}{}", super::INICONFIG_SDIST_PATH),
+            "hashes": {
+                "sha256": "2d91e135bf72d31a410b17c16da610a82cb55f6b0477d1a902134b24a455b8b3"
+            },
+            "requires-python": ">=3.7",
+            "size": 4646,
+            "upload-time": "2023-01-07T11:08:11.254770Z"
+        }])
+    }
+
+    /// Iniconfig with relative file URLs (for testing relative link resolution).
+    ///
+    /// URLs are relative to the index page URL. When the index is at
+    /// `/relative/simple/iniconfig/`, we need `../../../files/packages/...`
+    /// to resolve to `/files/packages/...` (up 3 levels: iniconfig → simple → relative → /).
+    pub(crate) fn iniconfig_relative() -> Value {
+        json!([{
+            "filename": "iniconfig-2.0.0-py3-none-any.whl",
+            "url": format!("../../..{}", super::INICONFIG_WHEEL_PATH),
+            "hashes": {
+                "sha256": "b6a85871a79d2e3b22d2d1b94ac2824226a63c6b741c88f7ae975f18b6778374"
+            },
+            "requires-python": ">=3.7",
+            "size": 5892,
+            "upload-time": "2023-01-07T11:08:09.864484Z"
+        }, {
+            "filename": "iniconfig-2.0.0.tar.gz",
+            "url": format!("../../..{}", super::INICONFIG_SDIST_PATH),
+            "hashes": {
+                "sha256": "2d91e135bf72d31a410b17c16da610a82cb55f6b0477d1a902134b24a455b8b3"
+            },
+            "requires-python": ">=3.7",
+            "size": 4646,
+            "upload-time": "2023-01-07T11:08:11.254770Z"
+        }])
+    }
+
+    pub(crate) fn anyio() -> Value {
         json!([{
             "filename": "anyio-4.3.0-py3-none-any.whl",
             "url": "https://files.pythonhosted.org/packages/14/fd/2f20c40b45e4fb4324834aea24bd4afdf1143390242c0b33774da0e2e34f/anyio-4.3.0-py3-none-any.whl",
@@ -126,7 +299,7 @@ pub mod packages {
         }])
     }
 
-    pub fn idna() -> Value {
+    pub(crate) fn idna() -> Value {
         json!([{
             "filename": "idna-3.6-py3-none-any.whl",
             "url": "https://files.pythonhosted.org/packages/c2/e7/a82b05cf63a603df6e68d59ae6a68bf5064484a0718ea5033660af4b54a9/idna-3.6-py3-none-any.whl",
@@ -138,7 +311,7 @@ pub mod packages {
         }])
     }
 
-    pub fn sniffio() -> Value {
+    pub(crate) fn sniffio() -> Value {
         json!([{
             "filename": "sniffio-1.3.1-py3-none-any.whl",
             "url": "https://files.pythonhosted.org/packages/e9/44/75a9c9421471a6c4805dbf2356f7c181a29c1879239abab1ea2cc8f38b40/sniffio-1.3.1-py3-none-any.whl",
@@ -150,7 +323,7 @@ pub mod packages {
         }])
     }
 
-    pub fn typing_extensions() -> Value {
+    pub(crate) fn typing_extensions() -> Value {
         json!([{
             "filename": "typing_extensions-4.10.0-py3-none-any.whl",
             "url": "https://files.pythonhosted.org/packages/f9/de/dc04a3ea60b22624b51c703a84bbe0184abcd1d0b9bc8074b5d6b7ab90bb/typing_extensions-4.10.0-py3-none-any.whl",
@@ -162,7 +335,7 @@ pub mod packages {
         }])
     }
 
-    pub fn executable_application() -> Value {
+    pub(crate) fn executable_application() -> Value {
         json!([
             {
                 "filename": "executable_application-0.1.0-py3-none-any.whl",
@@ -195,7 +368,7 @@ pub mod packages {
     }
 
     /// All packages needed for `anyio` resolution (anyio + its dependencies).
-    pub fn anyio_all() -> Vec<super::PackageSimpleApi> {
+    pub(crate) fn anyio_all() -> Vec<super::PackageSimpleApi> {
         vec![
             super::PackageSimpleApi {
                 name: "anyio",

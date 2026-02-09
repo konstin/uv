@@ -8,7 +8,7 @@ use assert_fs::{
     assert::PathAssert,
     fixture::{FileTouch, FileWriteStr, PathChild},
 };
-use indoc::indoc;
+use indoc::{formatdoc, indoc};
 use insta::assert_snapshot;
 use predicates::prelude::predicate;
 use uv_fs::copy_dir_all;
@@ -4176,8 +4176,10 @@ fn tool_install_mismatched_name() {
 }
 
 /// When installing from an authenticated index, the credentials should be omitted from the receipt.
-#[test]
-fn tool_install_credentials() {
+#[tokio::test]
+async fn tool_install_credentials() {
+    use crate::mock_index;
+
     let context = uv_test::test_context!("3.12")
         .with_exclude_newer("2025-01-18T00:00:00Z")
         .with_filtered_counts()
@@ -4185,11 +4187,30 @@ fn tool_install_credentials() {
     let tool_dir = context.temp_dir.child("tools");
     let bin_dir = context.temp_dir.child("bin");
 
+    let server = mock_index::start_auth_index(&[mock_index::PackageSimpleApi {
+        name: "executable-application",
+        files: mock_index::packages::executable_application(),
+    }])
+    .await;
+    let server_uri = server.uri();
+    let host = server_uri.strip_prefix("http://").unwrap();
+    let index_url = format!(
+        "http://{}:{}@{}/simple",
+        mock_index::USERNAME,
+        mock_index::PASSWORD,
+        host
+    );
+
+    let filters: Vec<(&str, &str)> = vec![(host, "[SERVER]")]
+        .into_iter()
+        .chain(context.filters())
+        .collect();
+
     // Install `executable-application`
-    uv_snapshot!(context.filters(), context.tool_install()
+    uv_snapshot!(filters, context.tool_install()
         .arg("executable-application")
          .arg("--index")
-        .arg("https://public:heron@pypi-proxy.fly.dev/basic-auth/simple")
+        .arg(&index_url)
         .env(EnvVars::UV_TOOL_DIR, tool_dir.as_os_str())
         .env(EnvVars::XDG_BIN_HOME, bin_dir.as_os_str())
         .env(EnvVars::PATH, bin_dir.as_os_str()), @"
@@ -4219,7 +4240,7 @@ fn tool_install_credentials() {
     // On Windows, we can't snapshot an executable file.
     #[cfg(not(windows))]
     insta::with_settings!({
-        filters => context.filters(),
+        filters => filters.clone(),
     }, {
         // Should run black in the virtual environment
         assert_snapshot!(fs_err::read_to_string(executable).unwrap(), @r#"
@@ -4238,7 +4259,7 @@ fn tool_install_credentials() {
     });
 
     insta::with_settings!({
-        filters => context.filters(),
+        filters => filters.clone(),
     }, {
         // We should have a tool receipt
         assert_snapshot!(fs_err::read_to_string(tool_dir.join("executable-application").join("uv-receipt.toml")).unwrap(), @r#"
@@ -4249,15 +4270,17 @@ fn tool_install_credentials() {
         ]
 
         [tool.options]
-        index = [{ url = "https://pypi-proxy.fly.dev/basic-auth/simple", explicit = false, default = false, format = "simple", authenticate = "auto" }]
+        index = [{ url = "http://[SERVER]/simple", explicit = false, default = false, format = "simple", authenticate = "auto" }]
         exclude-newer = "2025-01-18T00:00:00Z"
         "#);
     });
 }
 
 /// When installing from an authenticated index, the credentials should be omitted from the receipt.
-#[test]
-fn tool_install_default_credentials() -> Result<()> {
+#[tokio::test]
+async fn tool_install_default_credentials() -> Result<()> {
+    use crate::mock_index;
+
     let context = uv_test::test_context!("3.12")
         .with_exclude_newer("2025-01-18T00:00:00Z")
         .with_filtered_counts()
@@ -4265,17 +4288,33 @@ fn tool_install_default_credentials() -> Result<()> {
     let tool_dir = context.temp_dir.child("tools");
     let bin_dir = context.temp_dir.child("bin");
 
+    let server = mock_index::start_auth_index(&[mock_index::PackageSimpleApi {
+        name: "executable-application",
+        files: mock_index::packages::executable_application(),
+    }])
+    .await;
+    let server_uri = server.uri();
+    let host = server_uri.strip_prefix("http://").unwrap();
+
+    let filters: Vec<(&str, &str)> = vec![(host, "[SERVER]")]
+        .into_iter()
+        .chain(context.filters())
+        .collect();
+
     // Write a `uv.toml` with a default index that has credentials.
     let uv_toml = context.temp_dir.child("uv.toml");
-    uv_toml.write_str(indoc::indoc! {r#"
+    uv_toml.write_str(&formatdoc! {r#"
         [[index]]
-        url = "https://public:heron@pypi-proxy.fly.dev/basic-auth/simple"
+        url = "http://{username}:{password}@{host}/simple"
         default = true
         authenticate = "always"
-    "#})?;
+    "#,
+        username = mock_index::USERNAME,
+        password = mock_index::PASSWORD,
+    })?;
 
     // Install `executable-application`
-    uv_snapshot!(context.filters(), context.tool_install()
+    uv_snapshot!(filters, context.tool_install()
         .arg("executable-application")
         .arg("--config-file")
         .arg(uv_toml.as_os_str())
@@ -4308,7 +4347,7 @@ fn tool_install_default_credentials() -> Result<()> {
     // On Windows, we can't snapshot an executable file.
     #[cfg(not(windows))]
     insta::with_settings!({
-        filters => context.filters(),
+        filters => filters.clone(),
     }, {
         // Should run black in the virtual environment
         assert_snapshot!(fs_err::read_to_string(executable).unwrap(), @r#"
@@ -4326,7 +4365,7 @@ fn tool_install_default_credentials() -> Result<()> {
     });
 
     insta::with_settings!({
-        filters => context.filters(),
+        filters => filters.clone(),
     }, {
         // We should have a tool receipt
         assert_snapshot!(fs_err::read_to_string(tool_dir.join("executable-application").join("uv-receipt.toml")).unwrap(), @r#"
@@ -4337,13 +4376,13 @@ fn tool_install_default_credentials() -> Result<()> {
         ]
 
         [tool.options]
-        index = [{ url = "https://pypi-proxy.fly.dev/basic-auth/simple", explicit = false, default = true, format = "simple", authenticate = "always" }]
+        index = [{ url = "http://[SERVER]/simple", explicit = false, default = true, format = "simple", authenticate = "always" }]
         exclude-newer = "2025-01-18T00:00:00Z"
         "#);
     });
 
     // Attempt to upgrade without providing the credentials (from the config file).
-    uv_snapshot!(context.filters(), context.tool_upgrade()
+    uv_snapshot!(filters, context.tool_upgrade()
         .arg("executable-application")
         .env(EnvVars::UV_TOOL_DIR, tool_dir.as_os_str())
         .env(EnvVars::XDG_BIN_HOME, bin_dir.as_os_str())
@@ -4354,12 +4393,12 @@ fn tool_install_default_credentials() -> Result<()> {
 
     ----- stderr -----
     error: Failed to upgrade executable-application
-      Caused by: Failed to fetch: `https://pypi-proxy.fly.dev/basic-auth/simple/executable-application/`
-      Caused by: Missing credentials for https://pypi-proxy.fly.dev/basic-auth/simple/executable-application/
+      Caused by: Failed to fetch: `http://[SERVER]/simple/executable-application/`
+      Caused by: Missing credentials for http://[SERVER]/simple/executable-application/
     ");
 
     // Attempt to upgrade.
-    uv_snapshot!(context.filters(), context.tool_upgrade()
+    uv_snapshot!(filters, context.tool_upgrade()
         .arg("executable-application")
         .arg("--config-file")
         .arg(uv_toml.as_os_str())

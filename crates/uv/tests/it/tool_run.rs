@@ -3595,8 +3595,10 @@ fn tool_run_windows_dotted_package_name() -> anyhow::Result<()> {
 }
 
 /// Regression test for <https://github.com/astral-sh/uv/issues/17436>
-#[test]
-fn tool_run_latest_keyring_auth() {
+#[tokio::test]
+async fn tool_run_latest_keyring_auth() {
+    use crate::mock_index;
+
     let keyring_context = uv_test::test_context!("3.12");
 
     // Install our keyring plugin
@@ -3618,28 +3620,43 @@ fn tool_run_latest_keyring_auth() {
     let tool_dir = context.temp_dir.child("tools");
     let bin_dir = context.temp_dir.child("bin");
 
+    let server = mock_index::start_auth_index(&[mock_index::PackageSimpleApi {
+        name: "executable-application",
+        files: mock_index::packages::executable_application(),
+    }])
+    .await;
+    let server_uri = server.uri();
+    let host = server_uri.strip_prefix("http://").unwrap();
+
+    let filters: Vec<(&str, &str)> = vec![(host, "[SERVER]")]
+        .into_iter()
+        .chain(context.filters())
+        .collect();
+
+    let keyring_credentials = format!(r#"{{"{host}": {{"public": "heron"}}}}"#);
+
     // Combine keyring venv bin with tool bin directory to avoid PATH warnings.
     let path = std::env::join_paths([venv_bin_path(&keyring_context.venv), bin_dir.to_path_buf()])
         .unwrap();
 
     // Test that the keyring is consulted during the @latest version lookup.
-    uv_snapshot!(context.filters(), context.tool_install()
+    uv_snapshot!(filters, context.tool_install()
         .arg("--index")
-        .arg("https://public@pypi-proxy.fly.dev/basic-auth/simple")
+        .arg(format!("http://public@{host}/simple"))
         .arg("--keyring-provider")
         .arg("subprocess")
         .arg("executable-application@latest")
         .env(EnvVars::UV_TOOL_DIR, tool_dir.as_os_str())
         .env(EnvVars::XDG_BIN_HOME, bin_dir.as_os_str())
-        .env(EnvVars::KEYRING_TEST_CREDENTIALS, r#"{"pypi-proxy.fly.dev": {"public": "heron"}}"#)
+        .env(EnvVars::KEYRING_TEST_CREDENTIALS, &keyring_credentials)
         .env(EnvVars::PATH, path), @"
     success: true
     exit_code: 0
     ----- stdout -----
 
     ----- stderr -----
-    Keyring request for public@https://pypi-proxy.fly.dev/basic-auth/simple
-    Keyring request for public@pypi-proxy.fly.dev
+    Keyring request for public@http://[SERVER]/simple
+    Keyring request for public@[SERVER]
     Resolved [N] packages in [TIME]
     Prepared [N] packages in [TIME]
     Installed [N] packages in [TIME]

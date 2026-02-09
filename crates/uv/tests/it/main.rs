@@ -5,6 +5,8 @@ mod auth;
 
 mod branching_urls;
 
+mod mock_index;
+
 #[cfg(all(feature = "test-python", feature = "test-pypi"))]
 mod build;
 

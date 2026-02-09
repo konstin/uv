@@ -349,9 +349,9 @@ mod tests {
 
     #[test]
     fn from_url_no_credentials() {
-        let url_str = "https://pypi-proxy.fly.dev/basic-auth/simple";
+        let url_str = "https://example.com/basic-auth/simple";
         let log_safe_url =
-            DisplaySafeUrl::parse("https://pypi-proxy.fly.dev/basic-auth/simple").unwrap();
+            DisplaySafeUrl::parse("https://example.com/basic-auth/simple").unwrap();
         assert_eq!(log_safe_url.username(), "");
         assert!(log_safe_url.password().is_none());
         assert_eq!(log_safe_url.to_string(), url_str);
@@ -360,37 +360,37 @@ mod tests {
     #[test]
     fn from_url_username_and_password() {
         let log_safe_url =
-            DisplaySafeUrl::parse("https://user:pass@pypi-proxy.fly.dev/basic-auth/simple")
+            DisplaySafeUrl::parse("https://user:pass@example.com/basic-auth/simple")
                 .unwrap();
         assert_eq!(log_safe_url.username(), "user");
         assert!(log_safe_url.password().is_some_and(|p| p == "pass"));
         assert_eq!(
             log_safe_url.to_string(),
-            "https://user:****@pypi-proxy.fly.dev/basic-auth/simple"
+            "https://user:****@example.com/basic-auth/simple"
         );
     }
 
     #[test]
     fn from_url_just_password() {
         let log_safe_url =
-            DisplaySafeUrl::parse("https://:pass@pypi-proxy.fly.dev/basic-auth/simple").unwrap();
+            DisplaySafeUrl::parse("https://:pass@example.com/basic-auth/simple").unwrap();
         assert_eq!(log_safe_url.username(), "");
         assert!(log_safe_url.password().is_some_and(|p| p == "pass"));
         assert_eq!(
             log_safe_url.to_string(),
-            "https://:****@pypi-proxy.fly.dev/basic-auth/simple"
+            "https://:****@example.com/basic-auth/simple"
         );
     }
 
     #[test]
     fn from_url_just_username() {
         let log_safe_url =
-            DisplaySafeUrl::parse("https://user@pypi-proxy.fly.dev/basic-auth/simple").unwrap();
+            DisplaySafeUrl::parse("https://user@example.com/basic-auth/simple").unwrap();
         assert_eq!(log_safe_url.username(), "user");
         assert!(log_safe_url.password().is_none());
         assert_eq!(
             log_safe_url.to_string(),
-            "https://****@pypi-proxy.fly.dev/basic-auth/simple"
+            "https://****@example.com/basic-auth/simple"
         );
     }
 
@@ -411,39 +411,39 @@ mod tests {
 
     #[test]
     fn parse_url_string() {
-        let url_str = "https://user:pass@pypi-proxy.fly.dev/basic-auth/simple";
+        let url_str = "https://user:pass@example.com/basic-auth/simple";
         let log_safe_url = DisplaySafeUrl::parse(url_str).unwrap();
         assert_eq!(log_safe_url.username(), "user");
         assert!(log_safe_url.password().is_some_and(|p| p == "pass"));
         assert_eq!(
             log_safe_url.to_string(),
-            "https://user:****@pypi-proxy.fly.dev/basic-auth/simple"
+            "https://user:****@example.com/basic-auth/simple"
         );
     }
 
     #[test]
     fn remove_credentials() {
-        let url_str = "https://user:pass@pypi-proxy.fly.dev/basic-auth/simple";
+        let url_str = "https://user:pass@example.com/basic-auth/simple";
         let mut log_safe_url = DisplaySafeUrl::parse(url_str).unwrap();
         log_safe_url.remove_credentials();
         assert_eq!(log_safe_url.username(), "");
         assert!(log_safe_url.password().is_none());
         assert_eq!(
             log_safe_url.to_string(),
-            "https://pypi-proxy.fly.dev/basic-auth/simple"
+            "https://example.com/basic-auth/simple"
         );
     }
 
     #[test]
     fn preserve_ssh_git_username_on_remove_credentials() {
-        let ssh_str = "ssh://git@pypi-proxy.fly.dev/basic-auth/simple";
+        let ssh_str = "ssh://git@example.com/basic-auth/simple";
         let mut ssh_url = DisplaySafeUrl::parse(ssh_str).unwrap();
         ssh_url.remove_credentials();
         assert_eq!(ssh_url.username(), "git");
         assert!(ssh_url.password().is_none());
         assert_eq!(ssh_url.to_string(), ssh_str);
         // Test again for `git+ssh` scheme
-        let git_ssh_str = "git+ssh://git@pypi-proxy.fly.dev/basic-auth/simple";
+        let git_ssh_str = "git+ssh://git@example.com/basic-auth/simple";
         let mut git_shh_url = DisplaySafeUrl::parse(git_ssh_str).unwrap();
         git_shh_url.remove_credentials();
         assert_eq!(git_shh_url.username(), "git");
@@ -453,7 +453,7 @@ mod tests {
 
     #[test]
     fn displayable_with_credentials() {
-        let url_str = "https://user:pass@pypi-proxy.fly.dev/basic-auth/simple";
+        let url_str = "https://user:pass@example.com/basic-auth/simple";
         let log_safe_url = DisplaySafeUrl::parse(url_str).unwrap();
         assert_eq!(
             log_safe_url.displayable_with_credentials().to_string(),
@@ -471,14 +471,14 @@ mod tests {
 
     #[test]
     fn log_safe_url_ref() {
-        let url_str = "https://user:pass@pypi-proxy.fly.dev/basic-auth/simple";
+        let url_str = "https://user:pass@example.com/basic-auth/simple";
         let url = DisplaySafeUrl::parse(url_str).unwrap();
         let log_safe_url = DisplaySafeUrl::ref_cast(&url);
         assert_eq!(log_safe_url.username(), "user");
         assert!(log_safe_url.password().is_some_and(|p| p == "pass"));
         assert_eq!(
             log_safe_url.to_string(),
-            "https://user:****@pypi-proxy.fly.dev/basic-auth/simple"
+            "https://user:****@example.com/basic-auth/simple"
         );
     }
 

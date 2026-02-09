@@ -22261,8 +22261,10 @@ fn lock_change_requires_python() -> Result<()> {
 }
 
 /// Retrieve credentials for a named index from the keyring.
-#[test]
-fn lock_keyring_credentials() -> Result<()> {
+#[tokio::test]
+async fn lock_keyring_credentials() -> Result<()> {
+    use crate::mock_index;
+
     let keyring_context = uv_test::test_context!("3.12");
 
     // Install our keyring plugin
@@ -22280,8 +22282,21 @@ fn lock_keyring_credentials() -> Result<()> {
 
     let context = uv_test::test_context!("3.12");
 
+    let server = mock_index::start_auth_index(&[mock_index::PackageSimpleApi {
+        name: "iniconfig",
+        files: mock_index::packages::iniconfig(),
+    }])
+    .await;
+    let server_uri = server.uri();
+    let host = server_uri.strip_prefix("http://").unwrap();
+
+    let filters = [(host, "[SERVER]")]
+        .into_iter()
+        .chain(context.filters())
+        .collect::<Vec<_>>();
+
     let pyproject_toml = context.temp_dir.child("pyproject.toml");
-    pyproject_toml.write_str(
+    pyproject_toml.write_str(&format!(
         r#"
         [project]
         name = "foo"
@@ -22294,23 +22309,27 @@ fn lock_keyring_credentials() -> Result<()> {
 
         [[tool.uv.index]]
         name = "proxy"
-        url = "https://pypi-proxy.fly.dev/basic-auth/simple"
+        url = "{server_uri}/simple"
         default = true
         "#,
-    )?;
+    ))?;
 
-    // Provide credentials via the keyring
-    uv_snapshot!(context.filters(), context.lock()
+    // Provide credentials via the keyring.
+    // The keyring plugin matches on host:port for non-default ports.
+    let keyring_credentials = format!(r#"{{"{host}": {{"public": "heron"}}}}"#);
+
+    uv_snapshot!(filters, context.lock()
         .env(EnvVars::index_username("PROXY"), "public")
-        .env(EnvVars::KEYRING_TEST_CREDENTIALS, r#"{"pypi-proxy.fly.dev": {"public": "heron"}}"#)
-        .env(EnvVars::PATH, venv_bin_path(&keyring_context.venv)), @"
+        .env(EnvVars::KEYRING_TEST_CREDENTIALS, &keyring_credentials)
+        .env(EnvVars::PATH, venv_bin_path(&keyring_context.venv))
+        .env_remove(EnvVars::UV_EXCLUDE_NEWER), @"
     success: true
     exit_code: 0
     ----- stdout -----
 
     ----- stderr -----
-    Keyring request for public@https://pypi-proxy.fly.dev/basic-auth/simple
-    Keyring request for public@pypi-proxy.fly.dev
+    Keyring request for public@http://[SERVER]/simple
+    Keyring request for public@[SERVER]
     Resolved 2 packages in [TIME]
     ");
 
@@ -22318,16 +22337,13 @@ fn lock_keyring_credentials() -> Result<()> {
 
     // The lockfile should omit the credentials.
     insta::with_settings!({
-        filters => context.filters(),
+        filters => filters.clone(),
     }, {
         assert_snapshot!(
             lock, @r#"
         version = 1
         revision = 3
         requires-python = ">=3.12"
-
-        [options]
-        exclude-newer = "2024-03-25T00:00:00Z"
 
         [[package]]
         name = "foo"
@@ -22343,10 +22359,10 @@ fn lock_keyring_credentials() -> Result<()> {
         [[package]]
         name = "iniconfig"
         version = "2.0.0"
-        source = { registry = "https://pypi-proxy.fly.dev/basic-auth/simple" }
-        sdist = { url = "https://pypi-proxy.fly.dev/basic-auth/files/packages/d7/4b/cbd8e699e64a6f16ca3a8220661b5f83792b3017d0f79807cb8708d33913/iniconfig-2.0.0.tar.gz", hash = "sha256:2d91e135bf72d31a410b17c16da610a82cb55f6b0477d1a902134b24a455b8b3", size = 4646, upload-time = "2023-01-07T11:08:11.254Z" }
+        source = { registry = "http://[SERVER]/simple" }
+        sdist = { url = "https://files.pythonhosted.org/packages/d7/4b/cbd8e699e64a6f16ca3a8220661b5f83792b3017d0f79807cb8708d33913/iniconfig-2.0.0.tar.gz", hash = "sha256:2d91e135bf72d31a410b17c16da610a82cb55f6b0477d1a902134b24a455b8b3", size = 4646, upload-time = "2023-01-07T11:08:11.254Z" }
         wheels = [
-            { url = "https://pypi-proxy.fly.dev/basic-auth/files/packages/ef/a6/62565a6e1cf69e10f5727360368e451d4b7f58beeac6173dc9db836a5b46/iniconfig-2.0.0-py3-none-any.whl", hash = "sha256:b6a85871a79d2e3b22d2d1b94ac2824226a63c6b741c88f7ae975f18b6778374", size = 5892, upload-time = "2023-01-07T11:08:09.864Z" },
+            { url = "https://files.pythonhosted.org/packages/ef/a6/62565a6e1cf69e10f5727360368e451d4b7f58beeac6173dc9db836a5b46/iniconfig-2.0.0-py3-none-any.whl", hash = "sha256:b6a85871a79d2e3b22d2d1b94ac2824226a63c6b741c88f7ae975f18b6778374", size = 5892, upload-time = "2023-01-07T11:08:09.864Z" },
         ]
         "#
         );
@@ -22356,8 +22372,10 @@ fn lock_keyring_credentials() -> Result<()> {
 }
 
 /// Get credentials from the keyring with `explicit = true` and `authenticate = always`
-#[test]
-fn lock_keyring_explicit_always() -> Result<()> {
+#[tokio::test]
+async fn lock_keyring_explicit_always() -> Result<()> {
+    use crate::mock_index;
+
     let keyring_context = uv_test::test_context!("3.12");
 
     // Install our keyring plugin
@@ -22382,8 +22400,21 @@ fn lock_keyring_explicit_always() -> Result<()> {
 
     let context = uv_test::test_context!("3.12");
 
+    let server = mock_index::start_auth_index(&[mock_index::PackageSimpleApi {
+        name: "iniconfig",
+        files: mock_index::packages::iniconfig(),
+    }])
+    .await;
+    let server_uri = server.uri();
+    let host = server_uri.strip_prefix("http://").unwrap();
+
+    let filters = [(host, "[SERVER]")]
+        .into_iter()
+        .chain(context.filters())
+        .collect::<Vec<_>>();
+
     let pyproject_toml = context.temp_dir.child("pyproject.toml");
-    pyproject_toml.write_str(
+    pyproject_toml.write_str(&format!(
         r#"
         [project]
         name = "foo"
@@ -22395,44 +22426,48 @@ fn lock_keyring_explicit_always() -> Result<()> {
         keyring-provider = "subprocess"
 
         [tool.uv.sources]
-        iniconfig = {index = "proxy"}
+        iniconfig = {{index = "proxy"}}
 
         [[tool.uv.index]]
         name = "proxy"
-        url = "https://pypi-proxy.fly.dev/basic-auth/simple"
+        url = "{server_uri}/simple"
         authenticate = "always"
         explicit = true
         "#,
-    )?;
+    ))?;
 
     // First, try some invalid credentials — we should not fall back to the default index
-    uv_snapshot!(context.filters(), context.lock()
-        .env(EnvVars::KEYRING_TEST_CREDENTIALS, r#"{"pypi-proxy.fly.dev": {"public": "frog"}}"#)
-        .env(EnvVars::PATH, venv_bin_path(&keyring_context.venv)), @"
+    let bad_credentials = format!(r#"{{"{host}": {{"public": "frog"}}}}"#);
+    uv_snapshot!(filters, context.lock()
+        .env(EnvVars::KEYRING_TEST_CREDENTIALS, &bad_credentials)
+        .env(EnvVars::PATH, venv_bin_path(&keyring_context.venv))
+        .env_remove(EnvVars::UV_EXCLUDE_NEWER), @"
     success: false
     exit_code: 1
     ----- stdout -----
 
     ----- stderr -----
-    Keyring request for https://pypi-proxy.fly.dev/basic-auth/simple
-    Keyring request for pypi-proxy.fly.dev
+    Keyring request for http://[SERVER]/simple
+    Keyring request for [SERVER]
       × No solution found when resolving dependencies:
       ╰─▶ Because iniconfig was not found in the package registry and your project depends on iniconfig, we can conclude that your project's requirements are unsatisfiable.
 
-          hint: An index URL (https://pypi-proxy.fly.dev/basic-auth/simple) could not be queried due to a lack of valid authentication credentials (401 Unauthorized).
+          hint: An index URL (http://[SERVER]/simple) could not be queried due to a lack of valid authentication credentials (401 Unauthorized).
     ");
 
     // With valid credentials, we should succeed
-    uv_snapshot!(context.filters(), context.lock()
-        .env(EnvVars::KEYRING_TEST_CREDENTIALS, r#"{"pypi-proxy.fly.dev": {"public": "heron"}}"#)
-        .env(EnvVars::PATH, venv_bin_path(&keyring_context.venv)), @"
+    let good_credentials = format!(r#"{{"{host}": {{"public": "heron"}}}}"#);
+    uv_snapshot!(filters, context.lock()
+        .env(EnvVars::KEYRING_TEST_CREDENTIALS, &good_credentials)
+        .env(EnvVars::PATH, venv_bin_path(&keyring_context.venv))
+        .env_remove(EnvVars::UV_EXCLUDE_NEWER), @"
     success: true
     exit_code: 0
     ----- stdout -----
 
     ----- stderr -----
-    Keyring request for https://pypi-proxy.fly.dev/basic-auth/simple
-    Keyring request for pypi-proxy.fly.dev
+    Keyring request for http://[SERVER]/simple
+    Keyring request for [SERVER]
     Resolved 2 packages in [TIME]
     ");
 
@@ -22441,8 +22476,10 @@ fn lock_keyring_explicit_always() -> Result<()> {
 
 /// Fetch credentials (including a username) for a named index via the keyring using `authenticate =
 /// always`
-#[test]
-fn lock_keyring_credentials_always_authenticate_fetches_username() -> Result<()> {
+#[tokio::test]
+async fn lock_keyring_credentials_always_authenticate_fetches_username() -> Result<()> {
+    use crate::mock_index;
+
     let keyring_context = uv_test::test_context!("3.12");
 
     // Install our keyring plugin
@@ -22469,8 +22506,21 @@ fn lock_keyring_credentials_always_authenticate_fetches_username() -> Result<()>
 
     let context = uv_test::test_context!("3.12");
 
+    let server = mock_index::start_auth_index(&[mock_index::PackageSimpleApi {
+        name: "iniconfig",
+        files: mock_index::packages::iniconfig(),
+    }])
+    .await;
+    let server_uri = server.uri();
+    let host = server_uri.strip_prefix("http://").unwrap();
+
+    let filters = [(host, "[SERVER]")]
+        .into_iter()
+        .chain(context.filters())
+        .collect::<Vec<_>>();
+
     let pyproject_toml = context.temp_dir.child("pyproject.toml");
-    pyproject_toml.write_str(
+    pyproject_toml.write_str(&format!(
         r#"
         [project]
         name = "foo"
@@ -22483,22 +22533,25 @@ fn lock_keyring_credentials_always_authenticate_fetches_username() -> Result<()>
 
         [[tool.uv.index]]
         name = "proxy"
-        url = "https://pypi-proxy.fly.dev/basic-auth/simple"
+        url = "{server_uri}/simple"
         default = true
         authenticate = "always"
         "#,
-    )?;
+    ))?;
 
-    uv_snapshot!(context.filters(), context.lock()
-        .env(EnvVars::KEYRING_TEST_CREDENTIALS, r#"{"pypi-proxy.fly.dev": {"public": "heron"}}"#)
-        .env(EnvVars::PATH, venv_bin_path(&keyring_context.venv)), @"
+    let keyring_credentials = format!(r#"{{"{host}": {{"public": "heron"}}}}"#);
+
+    uv_snapshot!(filters, context.lock()
+        .env(EnvVars::KEYRING_TEST_CREDENTIALS, &keyring_credentials)
+        .env(EnvVars::PATH, venv_bin_path(&keyring_context.venv))
+        .env_remove(EnvVars::UV_EXCLUDE_NEWER), @"
     success: true
     exit_code: 0
     ----- stdout -----
 
     ----- stderr -----
-    Keyring request for https://pypi-proxy.fly.dev/basic-auth/simple
-    Keyring request for pypi-proxy.fly.dev
+    Keyring request for http://[SERVER]/simple
+    Keyring request for [SERVER]
     Resolved 2 packages in [TIME]
     ");
 
@@ -22506,16 +22559,13 @@ fn lock_keyring_credentials_always_authenticate_fetches_username() -> Result<()>
 
     // The lockfile should omit the credentials.
     insta::with_settings!({
-        filters => context.filters(),
+        filters => filters.clone(),
     }, {
         assert_snapshot!(
             lock, @r#"
         version = 1
         revision = 3
         requires-python = ">=3.12"
-
-        [options]
-        exclude-newer = "2024-03-25T00:00:00Z"
 
         [[package]]
         name = "foo"
@@ -22531,10 +22581,10 @@ fn lock_keyring_credentials_always_authenticate_fetches_username() -> Result<()>
         [[package]]
         name = "iniconfig"
         version = "2.0.0"
-        source = { registry = "https://pypi-proxy.fly.dev/basic-auth/simple" }
-        sdist = { url = "https://pypi-proxy.fly.dev/basic-auth/files/packages/d7/4b/cbd8e699e64a6f16ca3a8220661b5f83792b3017d0f79807cb8708d33913/iniconfig-2.0.0.tar.gz", hash = "sha256:2d91e135bf72d31a410b17c16da610a82cb55f6b0477d1a902134b24a455b8b3", size = 4646, upload-time = "2023-01-07T11:08:11.254Z" }
+        source = { registry = "http://[SERVER]/simple" }
+        sdist = { url = "https://files.pythonhosted.org/packages/d7/4b/cbd8e699e64a6f16ca3a8220661b5f83792b3017d0f79807cb8708d33913/iniconfig-2.0.0.tar.gz", hash = "sha256:2d91e135bf72d31a410b17c16da610a82cb55f6b0477d1a902134b24a455b8b3", size = 4646, upload-time = "2023-01-07T11:08:11.254Z" }
         wheels = [
-            { url = "https://pypi-proxy.fly.dev/basic-auth/files/packages/ef/a6/62565a6e1cf69e10f5727360368e451d4b7f58beeac6173dc9db836a5b46/iniconfig-2.0.0-py3-none-any.whl", hash = "sha256:b6a85871a79d2e3b22d2d1b94ac2824226a63c6b741c88f7ae975f18b6778374", size = 5892, upload-time = "2023-01-07T11:08:09.864Z" },
+            { url = "https://files.pythonhosted.org/packages/ef/a6/62565a6e1cf69e10f5727360368e451d4b7f58beeac6173dc9db836a5b46/iniconfig-2.0.0-py3-none-any.whl", hash = "sha256:b6a85871a79d2e3b22d2d1b94ac2824226a63c6b741c88f7ae975f18b6778374", size = 5892, upload-time = "2023-01-07T11:08:09.864Z" },
         ]
         "#
         );
@@ -22545,8 +22595,10 @@ fn lock_keyring_credentials_always_authenticate_fetches_username() -> Result<()>
 
 /// Fetch credentials (including a username) for a named index via the keyring using `authenticate =
 /// always` — but the keyring version installed does not support `--mode creds`
-#[test]
-fn lock_keyring_credentials_always_authenticate_unsupported_mode() -> Result<()> {
+#[tokio::test]
+async fn lock_keyring_credentials_always_authenticate_unsupported_mode() -> Result<()> {
+    use crate::mock_index;
+
     let keyring_context = uv_test::test_context!("3.12");
 
     // Install our keyring plugin
@@ -22564,8 +22616,21 @@ fn lock_keyring_credentials_always_authenticate_unsupported_mode() -> Result<()>
 
     let context = uv_test::test_context!("3.12");
 
+    let server = mock_index::start_auth_index(&[mock_index::PackageSimpleApi {
+        name: "iniconfig",
+        files: mock_index::packages::iniconfig(),
+    }])
+    .await;
+    let server_uri = server.uri();
+    let host = server_uri.strip_prefix("http://").unwrap();
+
+    let filters = [(host, "[SERVER]")]
+        .into_iter()
+        .chain(context.filters())
+        .collect::<Vec<_>>();
+
     let pyproject_toml = context.temp_dir.child("pyproject.toml");
-    pyproject_toml.write_str(
+    pyproject_toml.write_str(&format!(
         r#"
         [project]
         name = "foo"
@@ -22578,23 +22643,26 @@ fn lock_keyring_credentials_always_authenticate_unsupported_mode() -> Result<()>
 
         [[tool.uv.index]]
         name = "proxy"
-        url = "https://pypi-proxy.fly.dev/basic-auth/simple"
+        url = "{server_uri}/simple"
         default = true
         authenticate = "always"
         "#,
-    )?;
+    ))?;
 
-    uv_snapshot!(context.filters(), context.lock()
-        .env(EnvVars::KEYRING_TEST_CREDENTIALS, r#"{"pypi-proxy.fly.dev": {"public": "heron"}}"#)
-        .env(EnvVars::PATH, venv_bin_path(&keyring_context.venv)), @"
+    let keyring_credentials = format!(r#"{{"{host}": {{"public": "heron"}}}}"#);
+
+    uv_snapshot!(filters, context.lock()
+        .env(EnvVars::KEYRING_TEST_CREDENTIALS, &keyring_credentials)
+        .env(EnvVars::PATH, venv_bin_path(&keyring_context.venv))
+        .env_remove(EnvVars::UV_EXCLUDE_NEWER), @"
     success: false
     exit_code: 2
     ----- stdout -----
 
     ----- stderr -----
     warning: Attempted to fetch credentials using the `keyring` command, but it does not support `--mode creds`; upgrade to `keyring>=v25.2.1` or provide a username
-    error: Failed to fetch: `https://pypi-proxy.fly.dev/basic-auth/simple/iniconfig/`
-      Caused by: Missing credentials for https://pypi-proxy.fly.dev/basic-auth/simple/iniconfig/
+    error: Failed to fetch: `http://[SERVER]/simple/iniconfig/`
+      Caused by: Missing credentials for http://[SERVER]/simple/iniconfig/
     ");
 
     Ok(())

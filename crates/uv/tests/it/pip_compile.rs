@@ -17831,13 +17831,21 @@ fn omit_python_patch_universal() -> Result<()> {
     Ok(())
 }
 
-#[test]
-fn credentials_from_subdirectory() -> Result<()> {
+#[tokio::test]
+async fn credentials_from_subdirectory() -> Result<()> {
+    use crate::mock_index;
+
     let context = uv_test::test_context!("3.12");
+    let server = mock_index::start_auth_index(&[mock_index::PackageSimpleApi {
+        name: "iniconfig",
+        files: mock_index::packages::iniconfig(),
+    }])
+    .await;
+    let server_uri = server.uri();
 
     // Create a local dependency in a subdirectory.
     let pyproject_toml = context.temp_dir.child("foo").child("pyproject.toml");
-    pyproject_toml.write_str(
+    pyproject_toml.write_str(&format!(
         r#"
         [project]
         name = "foo"
@@ -17849,14 +17857,14 @@ fn credentials_from_subdirectory() -> Result<()> {
         build-backend = "hatchling.build"
 
         [tool.uv.sources]
-        iniconfig = { index = "internal" }
+        iniconfig = {{ index = "internal" }}
 
         [[tool.uv.index]]
         name = "internal"
-        url = "https://pypi-proxy.fly.dev/basic-auth/simple/"
+        url = "{server_uri}/simple/"
         explicit = true
         "#,
-    )?;
+    ))?;
     context
         .temp_dir
         .child("foo")
@@ -17865,9 +17873,15 @@ fn credentials_from_subdirectory() -> Result<()> {
         .child("__init__.py")
         .touch()?;
 
-    uv_snapshot!(context.filters(), context
+    let filters = [(server_uri.as_str(), "http://[SERVER]")]
+        .into_iter()
+        .chain(context.filters())
+        .collect::<Vec<_>>();
+
+    uv_snapshot!(filters, context
         .pip_compile()
-        .arg("foo/pyproject.toml"), @"
+        .arg("foo/pyproject.toml")
+        .env_remove(EnvVars::UV_EXCLUDE_NEWER), @"
     success: false
     exit_code: 1
     ----- stdout -----
@@ -17877,11 +17891,12 @@ fn credentials_from_subdirectory() -> Result<()> {
       ╰─▶ Because iniconfig was not found in the package registry and foo depends on iniconfig, we can conclude that your requirements are unsatisfiable.
     ");
 
-    uv_snapshot!(context.filters(), context
+    uv_snapshot!(filters, context
         .pip_compile()
         .arg("foo/pyproject.toml")
-        .env(EnvVars::index_username("INTERNAL"), "public")
-        .env(EnvVars::index_password("INTERNAL"), "heron"), @"
+        .env(EnvVars::index_username("INTERNAL"), mock_index::USERNAME)
+        .env(EnvVars::index_password("INTERNAL"), mock_index::PASSWORD)
+        .env_remove(EnvVars::UV_EXCLUDE_NEWER), @"
     success: true
     exit_code: 0
     ----- stdout -----

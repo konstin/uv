@@ -2,14 +2,16 @@ use anyhow::Result;
 use assert_cmd::assert::OutputAssertExt;
 use assert_fs::{fixture::PathChild, prelude::FileWriteStr};
 use uv_static::EnvVars;
+#[cfg(feature = "native-auth")]
+use wiremock::MockServer;
 
+#[cfg(feature = "native-auth")]
+use crate::mock_index;
 use uv_test::uv_snapshot;
 
 #[tokio::test]
 #[cfg(feature = "native-auth")]
 async fn add_package_native_auth_realm() -> Result<()> {
-    use crate::mock_index;
-
     let context = uv_test::test_context!("3.12").with_real_home();
 
     let server = mock_index::start_auth_index(&mock_index::packages::anyio_all()).await;
@@ -129,9 +131,6 @@ async fn add_package_native_auth_realm() -> Result<()> {
 #[tokio::test]
 #[cfg(feature = "native-auth")]
 async fn add_package_native_auth() -> Result<()> {
-    use crate::mock_index;
-    use wiremock::MockServer;
-
     let context = uv_test::test_context!("3.12").with_real_home();
 
     // Mount the index at /basic-auth/simple so that `/simple` stripping leaves `/basic-auth`

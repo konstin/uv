@@ -4187,10 +4187,7 @@ async fn tool_install_credentials() {
     let tool_dir = context.temp_dir.child("tools");
     let bin_dir = context.temp_dir.child("bin");
 
-    let server = mock_index::start_auth_index(&[mock_index::PackageSimpleApi {
-        name: "executable-application",
-        files: mock_index::packages::executable_application(),
-    }])
+    let server = mock_index::start_auth_index(&[mock_index::packages::executable_application()])
     .await;
     let server_uri = server.uri();
     let host = server_uri.strip_prefix("http://").unwrap();
@@ -4288,10 +4285,7 @@ async fn tool_install_default_credentials() -> Result<()> {
     let tool_dir = context.temp_dir.child("tools");
     let bin_dir = context.temp_dir.child("bin");
 
-    let server = mock_index::start_auth_index(&[mock_index::PackageSimpleApi {
-        name: "executable-application",
-        files: mock_index::packages::executable_application(),
-    }])
+    let server = mock_index::start_auth_index(&[mock_index::packages::executable_application()])
     .await;
     let server_uri = server.uri();
     let host = server_uri.strip_prefix("http://").unwrap();

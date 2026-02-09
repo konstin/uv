@@ -10605,10 +10605,7 @@ async fn add_index_credentials() -> Result<()> {
 
     let context = uv_test::test_context!("3.12");
 
-    let server = mock_index::start_auth_index(&[mock_index::PackageSimpleApi {
-        name: "iniconfig",
-        files: mock_index::packages::iniconfig(),
-    }])
+    let server = mock_index::start_auth_index(&[mock_index::packages::iniconfig()])
     .await;
     let server_uri = server.uri();
     let host = server_uri.strip_prefix("http://").unwrap();
@@ -10709,10 +10706,7 @@ async fn existing_index_credentials() -> Result<()> {
 
     let context = uv_test::test_context!("3.12");
 
-    let server = mock_index::start_auth_index(&[mock_index::PackageSimpleApi {
-        name: "iniconfig",
-        files: mock_index::packages::iniconfig(),
-    }])
+    let server = mock_index::start_auth_index(&[mock_index::packages::iniconfig()])
     .await;
     let server_uri = server.uri();
     let host = server_uri.strip_prefix("http://").unwrap();
@@ -13627,10 +13621,7 @@ async fn add_auth_policy_never_with_url_credentials() -> Result<()> {
     mock_index::mount_packages_with_auth(
         &server,
         "",
-        &[mock_index::PackageSimpleApi {
-            name: "anyio",
-            files: mock_index::packages::anyio_local(&server_uri),
-        }],
+        &[mock_index::packages::anyio_local(&server_uri)],
         mock_index::USERNAME,
         mock_index::PASSWORD,
     )

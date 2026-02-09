@@ -316,10 +316,7 @@ async fn cache_uv_toml_credentials() -> Result<()> {
     use crate::mock_index;
 
     let context = uv_test::test_context!("3.12");
-    let server = mock_index::start_auth_index(&[mock_index::PackageSimpleApi {
-        name: "iniconfig",
-        files: mock_index::packages::iniconfig(),
-    }])
+    let server = mock_index::start_auth_index(&[mock_index::packages::iniconfig()])
     .await;
     let server_uri = server.uri();
     let host = server_uri.strip_prefix("http://").unwrap();

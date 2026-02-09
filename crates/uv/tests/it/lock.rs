@@ -9441,10 +9441,7 @@ async fn lock_index_workspace_member() -> Result<()> {
     use crate::mock_index;
 
     let context = uv_test::test_context!("3.12");
-    let server = mock_index::start_auth_index(&[mock_index::PackageSimpleApi {
-        name: "iniconfig",
-        files: mock_index::packages::iniconfig(),
-    }])
+    let server = mock_index::start_auth_index(&[mock_index::packages::iniconfig()])
     .await;
     let server_uri = server.uri();
 
@@ -9786,10 +9783,7 @@ async fn lock_redact_https() -> Result<()> {
     // Use iniconfig_local so file URLs point to the mock server (auth required).
     let server = MockServer::start().await;
     let server_uri = server.uri();
-    let iniconfig_pkg = mock_index::PackageSimpleApi {
-        name: "iniconfig",
-        files: mock_index::packages::iniconfig_local(&server_uri),
-    };
+    let iniconfig_pkg = mock_index::packages::iniconfig_local(&server_uri);
     mock_index::mount_auth_index(
         &server,
         &[iniconfig_pkg],
@@ -9798,7 +9792,7 @@ async fn lock_redact_https() -> Result<()> {
     )
     .await;
     // Authenticated file requests redirect to real PyPI CDN.
-    mock_index::mount_iniconfig_files_auth(&server, mock_index::USERNAME, mock_index::PASSWORD)
+    mock_index::mount_file_redirects_auth(&server, mock_index::USERNAME, mock_index::PASSWORD)
         .await;
 
     let host = server_uri.strip_prefix("http://").unwrap();
@@ -10360,10 +10354,7 @@ async fn lock_redact_index_sources() -> Result<()> {
     use crate::mock_index;
 
     let context = uv_test::test_context!("3.12").with_filtered_link_mode_warning();
-    let server = mock_index::start_auth_index(&[mock_index::PackageSimpleApi {
-        name: "iniconfig",
-        files: mock_index::packages::iniconfig(),
-    }])
+    let server = mock_index::start_auth_index(&[mock_index::packages::iniconfig()])
     .await;
     let server_uri = server.uri();
 
@@ -10479,7 +10470,7 @@ async fn lock_redact_url_sources() -> Result<()> {
     let server_uri = server.uri();
 
     // Mount authenticated file endpoint that redirects to real PyPI CDN.
-    mock_index::mount_iniconfig_files_auth(&server, mock_index::USERNAME, mock_index::PASSWORD)
+    mock_index::mount_file_redirects_auth(&server, mock_index::USERNAME, mock_index::PASSWORD)
         .await;
     mock_index::mount_401_catchall(&server).await;
 
@@ -10594,10 +10585,7 @@ async fn lock_env_credentials() -> Result<()> {
     use crate::mock_index;
 
     let context = uv_test::test_context!("3.12");
-    let server = mock_index::start_auth_index(&[mock_index::PackageSimpleApi {
-        name: "iniconfig",
-        files: mock_index::packages::iniconfig(),
-    }])
+    let server = mock_index::start_auth_index(&[mock_index::packages::iniconfig()])
     .await;
     let server_uri = server.uri();
 
@@ -10704,10 +10692,7 @@ async fn lock_multiple_indexes_same_realm_different_credentials() -> Result<()> 
     mock_index::mount_packages_with_auth(
         &server,
         "/basic-auth-heron",
-        &[mock_index::PackageSimpleApi {
-            name: "iniconfig",
-            files: mock_index::packages::iniconfig(),
-        }],
+        &[mock_index::packages::iniconfig()],
         "public",
         "heron",
     )
@@ -10779,10 +10764,7 @@ async fn lock_multiple_indexes_same_realm_different_credentials_trailing_slash()
     mock_index::mount_packages_with_auth(
         &server,
         "/basic-auth-heron",
-        &[mock_index::PackageSimpleApi {
-            name: "iniconfig",
-            files: mock_index::packages::iniconfig(),
-        }],
+        &[mock_index::packages::iniconfig()],
         "public",
         "heron",
     )
@@ -10854,14 +10836,11 @@ async fn lock_relative_index() -> Result<()> {
     mock_index::mount_packages(
         &server,
         "/relative",
-        &[mock_index::PackageSimpleApi {
-            name: "iniconfig",
-            files: mock_index::packages::iniconfig_relative(),
-        }],
+        &[mock_index::packages::iniconfig_relative()],
     )
     .await;
     // Relative URLs resolve to /files/packages/... on the same server.
-    mock_index::mount_iniconfig_files(&server).await;
+    mock_index::mount_file_redirects(&server).await;
 
     let filters = [(server_uri.as_str(), "http://[SERVER]")]
         .into_iter()
@@ -14654,10 +14633,7 @@ async fn lock_change_index() -> Result<()> {
 
     let context = uv_test::test_context!("3.12");
 
-    let server = mock_index::start_auth_index(&[mock_index::PackageSimpleApi {
-        name: "iniconfig",
-        files: mock_index::packages::iniconfig(),
-    }])
+    let server = mock_index::start_auth_index(&[mock_index::packages::iniconfig()])
     .await;
     let server_uri = server.uri();
 
@@ -19216,10 +19192,7 @@ async fn lock_named_index() -> Result<()> {
 
     mock_index::mount_index(
         &server,
-        &[mock_index::PackageSimpleApi {
-            name: "typing-extensions",
-            files: mock_index::packages::typing_extensions(),
-        }],
+        &[mock_index::packages::typing_extensions()],
     )
     .await;
 
@@ -22282,10 +22255,7 @@ async fn lock_keyring_credentials() -> Result<()> {
 
     let context = uv_test::test_context!("3.12");
 
-    let server = mock_index::start_auth_index(&[mock_index::PackageSimpleApi {
-        name: "iniconfig",
-        files: mock_index::packages::iniconfig(),
-    }])
+    let server = mock_index::start_auth_index(&[mock_index::packages::iniconfig()])
     .await;
     let server_uri = server.uri();
     let host = server_uri.strip_prefix("http://").unwrap();
@@ -22400,10 +22370,7 @@ async fn lock_keyring_explicit_always() -> Result<()> {
 
     let context = uv_test::test_context!("3.12");
 
-    let server = mock_index::start_auth_index(&[mock_index::PackageSimpleApi {
-        name: "iniconfig",
-        files: mock_index::packages::iniconfig(),
-    }])
+    let server = mock_index::start_auth_index(&[mock_index::packages::iniconfig()])
     .await;
     let server_uri = server.uri();
     let host = server_uri.strip_prefix("http://").unwrap();
@@ -22506,10 +22473,7 @@ async fn lock_keyring_credentials_always_authenticate_fetches_username() -> Resu
 
     let context = uv_test::test_context!("3.12");
 
-    let server = mock_index::start_auth_index(&[mock_index::PackageSimpleApi {
-        name: "iniconfig",
-        files: mock_index::packages::iniconfig(),
-    }])
+    let server = mock_index::start_auth_index(&[mock_index::packages::iniconfig()])
     .await;
     let server_uri = server.uri();
     let host = server_uri.strip_prefix("http://").unwrap();
@@ -22616,10 +22580,7 @@ async fn lock_keyring_credentials_always_authenticate_unsupported_mode() -> Resu
 
     let context = uv_test::test_context!("3.12");
 
-    let server = mock_index::start_auth_index(&[mock_index::PackageSimpleApi {
-        name: "iniconfig",
-        files: mock_index::packages::iniconfig(),
-    }])
+    let server = mock_index::start_auth_index(&[mock_index::packages::iniconfig()])
     .await;
     let server_uri = server.uri();
     let host = server_uri.strip_prefix("http://").unwrap();

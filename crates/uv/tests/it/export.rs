@@ -1403,7 +1403,7 @@ async fn requirements_txt_https_credentials() -> Result<()> {
     let context = uv_test::test_context!("3.12");
 
     let server = MockServer::start().await;
-    mock_index::mount_iniconfig_files_auth(&server, mock_index::USERNAME, mock_index::PASSWORD)
+    mock_index::mount_file_redirects_auth(&server, mock_index::USERNAME, mock_index::PASSWORD)
         .await;
     mock_index::mount_401_catchall(&server).await;
     let server_uri = server.uri();
@@ -4599,7 +4599,7 @@ async fn pep_751_https_credentials() -> Result<()> {
     let context = uv_test::test_context!("3.12");
 
     let server = MockServer::start().await;
-    mock_index::mount_iniconfig_files_auth(&server, mock_index::USERNAME, mock_index::PASSWORD)
+    mock_index::mount_file_redirects_auth(&server, mock_index::USERNAME, mock_index::PASSWORD)
         .await;
     mock_index::mount_401_catchall(&server).await;
     let server_uri = server.uri();

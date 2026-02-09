@@ -407,6 +407,32 @@ pub(crate) mod packages {
         ])
     }
 
+    /// Anyio with file URLs pointing to the mock server root (for testing auth on file downloads).
+    ///
+    /// Use this when the test needs file download URLs on the same host as the index,
+    /// e.g. for testing `authenticate = "never"` where credentials aren't forwarded to file URLs.
+    pub(crate) fn anyio_local(server_uri: &str) -> Value {
+        json!([{
+            "filename": "anyio-4.3.0-py3-none-any.whl",
+            "url": format!("{server_uri}/files/packages/14/fd/2f20c40b45e4fb4324834aea24bd4afdf1143390242c0b33774da0e2e34f/anyio-4.3.0-py3-none-any.whl"),
+            "hashes": {
+                "sha256": "048e05d0f6caeed70d731f3db756d35dcc1f35747c8c403364a8332c630441b8"
+            },
+            "requires-python": ">=3.8",
+            "size": 85584,
+            "upload-time": "2024-02-19T08:36:26.842735Z"
+        }, {
+            "filename": "anyio-4.3.0.tar.gz",
+            "url": format!("{server_uri}/files/packages/db/4d/3970183622f0330d3c23d9b8a5f52e365e50381fd484d08e3285104333d3/anyio-4.3.0.tar.gz"),
+            "hashes": {
+                "sha256": "f75253795a87df48568485fd18cdd2a3fa5c4f7c5be8e5e36637733fce06fed6"
+            },
+            "requires-python": ">=3.8",
+            "size": 159642,
+            "upload-time": "2024-02-19T08:36:28.641Z"
+        }])
+    }
+
     /// All packages needed for `anyio` resolution (anyio + its dependencies).
     pub(crate) fn anyio_all() -> Vec<super::PackageSimpleApi> {
         vec![

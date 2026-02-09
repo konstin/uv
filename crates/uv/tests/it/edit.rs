@@ -10599,9 +10599,26 @@ fn add_default_index_url() -> Result<()> {
     Ok(())
 }
 
-#[test]
-fn add_index_credentials() -> Result<()> {
+#[tokio::test]
+async fn add_index_credentials() -> Result<()> {
+    use crate::mock_index;
+
     let context = uv_test::test_context!("3.12");
+
+    let server = mock_index::start_auth_index(&[mock_index::PackageSimpleApi {
+        name: "iniconfig",
+        files: mock_index::packages::iniconfig(),
+    }])
+    .await;
+    let server_uri = server.uri();
+    let host = server_uri.strip_prefix("http://").unwrap();
+    let default_index =
+        format!("http://{}:{}@{}/simple", mock_index::USERNAME, mock_index::PASSWORD, host);
+
+    let filters = [(host, "[SERVER]")]
+        .into_iter()
+        .chain(context.filters())
+        .collect::<Vec<_>>();
 
     let pyproject_toml = context.temp_dir.child("pyproject.toml");
     pyproject_toml.write_str(indoc! {r#"
@@ -10613,7 +10630,9 @@ fn add_index_credentials() -> Result<()> {
     "#})?;
 
     // Provide credentials for the index via the environment variable.
-    uv_snapshot!(context.filters(), context.add().arg("iniconfig==2.0.0").env(EnvVars::UV_DEFAULT_INDEX, "https://public:heron@pypi-proxy.fly.dev/basic-auth/simple"), @"
+    uv_snapshot!(filters, context.add().arg("iniconfig==2.0.0")
+        .env(EnvVars::UV_DEFAULT_INDEX, &default_index)
+        .env_remove(EnvVars::UV_EXCLUDE_NEWER), @"
     success: true
     exit_code: 0
     ----- stdout -----
@@ -10628,7 +10647,7 @@ fn add_index_credentials() -> Result<()> {
     let pyproject_toml = fs_err::read_to_string(context.temp_dir.join("pyproject.toml"))?;
 
     insta::with_settings!({
-        filters => context.filters(),
+        filters => filters.clone(),
     }, {
         assert_snapshot!(
             pyproject_toml, @r#"
@@ -10641,7 +10660,7 @@ fn add_index_credentials() -> Result<()> {
         ]
 
         [[tool.uv.index]]
-        url = "https://pypi-proxy.fly.dev/basic-auth/simple"
+        url = "http://[SERVER]/simple"
         default = true
         "#
         );
@@ -10650,7 +10669,7 @@ fn add_index_credentials() -> Result<()> {
     let lock = fs_err::read_to_string(context.temp_dir.join("uv.lock"))?;
 
     insta::with_settings!({
-        filters => context.filters(),
+        filters => filters.clone(),
     }, {
         assert_snapshot!(
             lock, @r#"
@@ -10658,16 +10677,13 @@ fn add_index_credentials() -> Result<()> {
         revision = 3
         requires-python = ">=3.12"
 
-        [options]
-        exclude-newer = "2024-03-25T00:00:00Z"
-
         [[package]]
         name = "iniconfig"
         version = "2.0.0"
-        source = { registry = "https://pypi-proxy.fly.dev/basic-auth/simple" }
-        sdist = { url = "https://pypi-proxy.fly.dev/basic-auth/files/packages/d7/4b/cbd8e699e64a6f16ca3a8220661b5f83792b3017d0f79807cb8708d33913/iniconfig-2.0.0.tar.gz", hash = "sha256:2d91e135bf72d31a410b17c16da610a82cb55f6b0477d1a902134b24a455b8b3", size = 4646, upload-time = "2023-01-07T11:08:11.254Z" }
+        source = { registry = "http://[SERVER]/simple" }
+        sdist = { url = "https://files.pythonhosted.org/packages/d7/4b/cbd8e699e64a6f16ca3a8220661b5f83792b3017d0f79807cb8708d33913/iniconfig-2.0.0.tar.gz", hash = "sha256:2d91e135bf72d31a410b17c16da610a82cb55f6b0477d1a902134b24a455b8b3", size = 4646, upload-time = "2023-01-07T11:08:11.254Z" }
         wheels = [
-            { url = "https://pypi-proxy.fly.dev/basic-auth/files/packages/ef/a6/62565a6e1cf69e10f5727360368e451d4b7f58beeac6173dc9db836a5b46/iniconfig-2.0.0-py3-none-any.whl", hash = "sha256:b6a85871a79d2e3b22d2d1b94ac2824226a63c6b741c88f7ae975f18b6778374", size = 5892, upload-time = "2023-01-07T11:08:09.864Z" },
+            { url = "https://files.pythonhosted.org/packages/ef/a6/62565a6e1cf69e10f5727360368e451d4b7f58beeac6173dc9db836a5b46/iniconfig-2.0.0-py3-none-any.whl", hash = "sha256:b6a85871a79d2e3b22d2d1b94ac2824226a63c6b741c88f7ae975f18b6778374", size = 5892, upload-time = "2023-01-07T11:08:09.864Z" },
         ]
 
         [[package]]
@@ -10687,27 +10703,48 @@ fn add_index_credentials() -> Result<()> {
     Ok(())
 }
 
-#[test]
-fn existing_index_credentials() -> Result<()> {
+#[tokio::test]
+async fn existing_index_credentials() -> Result<()> {
+    use crate::mock_index;
+
     let context = uv_test::test_context!("3.12");
 
-    let pyproject_toml = context.temp_dir.child("pyproject.toml");
-    pyproject_toml.write_str(indoc! {r#"
-        [project]
-        name = "project"
-        version = "0.1.0"
-        requires-python = ">=3.12"
-        dependencies = []
+    let server = mock_index::start_auth_index(&[mock_index::PackageSimpleApi {
+        name: "iniconfig",
+        files: mock_index::packages::iniconfig(),
+    }])
+    .await;
+    let server_uri = server.uri();
+    let host = server_uri.strip_prefix("http://").unwrap();
+    let default_index =
+        format!("http://{}:{}@{}/simple", mock_index::USERNAME, mock_index::PASSWORD, host);
 
-        # Set an internal index as the default, without credentials.
-        [[tool.uv.index]]
-        name = "internal"
-        url = "https://pypi-proxy.fly.dev/basic-auth/simple"
-        default = true
-    "#})?;
+    let filters = [(host, "[SERVER]")]
+        .into_iter()
+        .chain(context.filters())
+        .collect::<Vec<_>>();
+
+    let pyproject_toml = context.temp_dir.child("pyproject.toml");
+    pyproject_toml.write_str(&format!(
+        r#"
+[project]
+name = "project"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = []
+
+# Set an internal index as the default, without credentials.
+[[tool.uv.index]]
+name = "internal"
+url = "{server_uri}/simple"
+default = true
+"#,
+    ))?;
 
     // Provide credentials for the index via the environment variable.
-    uv_snapshot!(context.filters(), context.add().arg("iniconfig==2.0.0").env(EnvVars::UV_DEFAULT_INDEX, "https://public:heron@pypi-proxy.fly.dev/basic-auth/simple"), @"
+    uv_snapshot!(filters, context.add().arg("iniconfig==2.0.0")
+        .env(EnvVars::UV_DEFAULT_INDEX, &default_index)
+        .env_remove(EnvVars::UV_EXCLUDE_NEWER), @"
     success: true
     exit_code: 0
     ----- stdout -----
@@ -10722,7 +10759,7 @@ fn existing_index_credentials() -> Result<()> {
     let pyproject_toml = fs_err::read_to_string(context.temp_dir.join("pyproject.toml"))?;
 
     insta::with_settings!({
-        filters => context.filters(),
+        filters => filters.clone(),
     }, {
         assert_snapshot!(
             pyproject_toml, @r#"
@@ -10737,7 +10774,7 @@ fn existing_index_credentials() -> Result<()> {
         # Set an internal index as the default, without credentials.
         [[tool.uv.index]]
         name = "internal"
-        url = "https://pypi-proxy.fly.dev/basic-auth/simple"
+        url = "http://[SERVER]/simple"
         default = true
         "#
         );
@@ -10746,7 +10783,7 @@ fn existing_index_credentials() -> Result<()> {
     let lock = fs_err::read_to_string(context.temp_dir.join("uv.lock"))?;
 
     insta::with_settings!({
-        filters => context.filters(),
+        filters => filters.clone(),
     }, {
         assert_snapshot!(
             lock, @r#"
@@ -10754,16 +10791,13 @@ fn existing_index_credentials() -> Result<()> {
         revision = 3
         requires-python = ">=3.12"
 
-        [options]
-        exclude-newer = "2024-03-25T00:00:00Z"
-
         [[package]]
         name = "iniconfig"
         version = "2.0.0"
-        source = { registry = "https://pypi-proxy.fly.dev/basic-auth/simple" }
-        sdist = { url = "https://pypi-proxy.fly.dev/basic-auth/files/packages/d7/4b/cbd8e699e64a6f16ca3a8220661b5f83792b3017d0f79807cb8708d33913/iniconfig-2.0.0.tar.gz", hash = "sha256:2d91e135bf72d31a410b17c16da610a82cb55f6b0477d1a902134b24a455b8b3", size = 4646, upload-time = "2023-01-07T11:08:11.254Z" }
+        source = { registry = "http://[SERVER]/simple" }
+        sdist = { url = "https://files.pythonhosted.org/packages/d7/4b/cbd8e699e64a6f16ca3a8220661b5f83792b3017d0f79807cb8708d33913/iniconfig-2.0.0.tar.gz", hash = "sha256:2d91e135bf72d31a410b17c16da610a82cb55f6b0477d1a902134b24a455b8b3", size = 4646, upload-time = "2023-01-07T11:08:11.254Z" }
         wheels = [
-            { url = "https://pypi-proxy.fly.dev/basic-auth/files/packages/ef/a6/62565a6e1cf69e10f5727360368e451d4b7f58beeac6173dc9db836a5b46/iniconfig-2.0.0-py3-none-any.whl", hash = "sha256:b6a85871a79d2e3b22d2d1b94ac2824226a63c6b741c88f7ae975f18b6778374", size = 5892, upload-time = "2023-01-07T11:08:09.864Z" },
+            { url = "https://files.pythonhosted.org/packages/ef/a6/62565a6e1cf69e10f5727360368e451d4b7f58beeac6173dc9db836a5b46/iniconfig-2.0.0-py3-none-any.whl", hash = "sha256:b6a85871a79d2e3b22d2d1b94ac2824226a63c6b741c88f7ae975f18b6778374", size = 5892, upload-time = "2023-01-07T11:08:09.864Z" },
         ]
 
         [[package]]
@@ -11055,7 +11089,7 @@ fn add_index_with_non_existent_relative_path_with_same_name_as_index() -> Result
 
         [[tool.uv.index]]
         name = "test-index"
-        url = "https://pypi-proxy.fly.dev/simple"
+        url = "https://pypi.org/simple"
     "#})?;
 
     uv_snapshot!(context.filters(), context.add().arg("iniconfig").arg("--index").arg("./test-index"), @"
@@ -11084,7 +11118,7 @@ fn add_index_empty_directory() -> Result<()> {
 
         [[tool.uv.index]]
         name = "test-index"
-        url = "https://pypi-proxy.fly.dev/simple"
+        url = "https://pypi.org/simple"
     "#})?;
 
     let packages = context.temp_dir.child("test-index");
@@ -13003,8 +13037,10 @@ fn add_unsupported_git_scheme() {
     ");
 }
 
-#[test]
-fn add_index_url_in_keyring() -> Result<()> {
+#[tokio::test]
+async fn add_index_url_in_keyring() -> Result<()> {
+    use crate::mock_index;
+
     let keyring_context = uv_test::test_context!("3.12");
 
     // Install our keyring plugin
@@ -13022,8 +13058,20 @@ fn add_index_url_in_keyring() -> Result<()> {
 
     let context = uv_test::test_context!("3.12");
 
+    let server = mock_index::start_auth_index(&mock_index::packages::anyio_all()).await;
+    let server_uri = server.uri();
+    let host = server_uri.strip_prefix("http://").unwrap();
+
+    let filters = [(host, "[SERVER]")]
+        .into_iter()
+        .chain(context.filters())
+        .collect::<Vec<_>>();
+
+    let keyring_credentials =
+        format!(r#"{{"{server_uri}/simple": {{"public": "heron"}}}}"#);
+
     let pyproject_toml = context.temp_dir.child("pyproject.toml");
-    pyproject_toml.write_str(indoc! { r#"
+    pyproject_toml.write_str(&formatdoc! { r#"
         [project]
         name = "foo"
         version = "1.0.0"
@@ -13033,21 +13081,22 @@ fn add_index_url_in_keyring() -> Result<()> {
         keyring-provider = "subprocess"
         [[tool.uv.index]]
         name = "proxy"
-        url = "https://pypi-proxy.fly.dev/basic-auth/simple"
+        url = "{server_uri}/simple"
         default = true
         "#
     })?;
 
-    uv_snapshot!(context.add().arg("anyio")
+    uv_snapshot!(filters, context.add().arg("anyio")
         .env(EnvVars::index_username("PROXY"), "public")
-        .env(EnvVars::KEYRING_TEST_CREDENTIALS, r#"{"https://pypi-proxy.fly.dev/basic-auth/simple": {"public": "heron"}}"#)
-        .env(EnvVars::PATH, venv_bin_path(&keyring_context.venv)), @"
+        .env(EnvVars::KEYRING_TEST_CREDENTIALS, &keyring_credentials)
+        .env(EnvVars::PATH, venv_bin_path(&keyring_context.venv))
+        .env_remove(EnvVars::UV_EXCLUDE_NEWER), @"
     success: true
     exit_code: 0
     ----- stdout -----
 
     ----- stderr -----
-    Keyring request for public@https://pypi-proxy.fly.dev/basic-auth/simple
+    Keyring request for public@http://[SERVER]/simple
     Resolved 4 packages in [TIME]
     Prepared 3 packages in [TIME]
     Installed 3 packages in [TIME]
@@ -13061,8 +13110,10 @@ fn add_index_url_in_keyring() -> Result<()> {
     Ok(())
 }
 
-#[test]
-fn add_full_url_in_keyring() -> Result<()> {
+#[tokio::test]
+async fn add_full_url_in_keyring() -> Result<()> {
+    use crate::mock_index;
+
     let keyring_context = uv_test::test_context!("3.12");
 
     // Install our keyring plugin
@@ -13080,8 +13131,23 @@ fn add_full_url_in_keyring() -> Result<()> {
 
     let context = uv_test::test_context!("3.12");
 
+    let server = MockServer::start().await;
+    mock_index::mount_401_catchall(&server).await;
+    let server_uri = server.uri();
+    let host = server_uri.strip_prefix("http://").unwrap();
+
+    let filters = [(host, "[SERVER]")]
+        .into_iter()
+        .chain(context.filters())
+        .collect::<Vec<_>>();
+
+    // Keyring credentials are keyed by the full URL with package name, which
+    // won't match the index URL lookup, so authentication will fail.
+    let keyring_credentials =
+        format!(r#"{{"{server_uri}/simple/anyio": {{"public": "heron"}}}}"#);
+
     let pyproject_toml = context.temp_dir.child("pyproject.toml");
-    pyproject_toml.write_str(indoc! { r#"
+    pyproject_toml.write_str(&formatdoc! { r#"
         [project]
         name = "foo"
         version = "1.0.0"
@@ -13091,26 +13157,26 @@ fn add_full_url_in_keyring() -> Result<()> {
         keyring-provider = "subprocess"
         [[tool.uv.index]]
         name = "proxy"
-        url = "https://pypi-proxy.fly.dev/basic-auth/simple"
+        url = "{server_uri}/simple"
         default = true
         "#
     })?;
 
-    uv_snapshot!(context.add().arg("anyio")
+    uv_snapshot!(filters, context.add().arg("anyio")
         .env(EnvVars::index_username("PROXY"), "public")
-        .env(EnvVars::KEYRING_TEST_CREDENTIALS, r#"{"https://pypi-proxy.fly.dev/basic-auth/simple/anyio": {"public": "heron"}}"#)
+        .env(EnvVars::KEYRING_TEST_CREDENTIALS, &keyring_credentials)
         .env(EnvVars::PATH, venv_bin_path(&keyring_context.venv)), @"
     success: false
     exit_code: 1
     ----- stdout -----
 
     ----- stderr -----
-    Keyring request for public@https://pypi-proxy.fly.dev/basic-auth/simple
-    Keyring request for public@pypi-proxy.fly.dev
+    Keyring request for public@http://[SERVER]/simple
+    Keyring request for public@[SERVER]
       × No solution found when resolving dependencies:
       ╰─▶ Because anyio was not found in the package registry and your project depends on anyio, we can conclude that your project's requirements are unsatisfiable.
 
-          hint: An index URL (https://pypi-proxy.fly.dev/basic-auth/simple) could not be queried due to a lack of valid authentication credentials (401 Unauthorized).
+          hint: An index URL (http://[SERVER]/simple) could not be queried due to a lack of valid authentication credentials (401 Unauthorized).
       help: If you want to add the package regardless of the failed resolution, provide the `--frozen` flag to skip locking and syncing.
     "
     );
@@ -13119,12 +13185,24 @@ fn add_full_url_in_keyring() -> Result<()> {
 
 /// If uv receives an authentication failure from a configured index, it
 /// should not fall back to the default index.
-#[test]
-fn add_stop_index_search_early_on_auth_failure() -> Result<()> {
+#[tokio::test]
+async fn add_stop_index_search_early_on_auth_failure() -> Result<()> {
+    use crate::mock_index;
+
     let context = uv_test::test_context!("3.12");
 
+    let server = MockServer::start().await;
+    mock_index::mount_401_catchall(&server).await;
+    let server_uri = server.uri();
+    let host = server_uri.strip_prefix("http://").unwrap();
+
+    let filters = [(host, "[SERVER]")]
+        .into_iter()
+        .chain(context.filters())
+        .collect::<Vec<_>>();
+
     let pyproject_toml = context.temp_dir.child("pyproject.toml");
-    pyproject_toml.write_str(indoc! { r#"
+    pyproject_toml.write_str(&formatdoc! { r#"
         [project]
         name = "foo"
         version = "1.0.0"
@@ -13132,11 +13210,11 @@ fn add_stop_index_search_early_on_auth_failure() -> Result<()> {
         dependencies = []
         [[tool.uv.index]]
         name = "my-index"
-        url = "https://pypi-proxy.fly.dev/basic-auth/simple"
+        url = "{server_uri}/simple"
         "#
     })?;
 
-    uv_snapshot!(context.add().arg("anyio"), @"
+    uv_snapshot!(filters, context.add().arg("anyio"), @"
     success: false
     exit_code: 1
     ----- stdout -----
@@ -13145,7 +13223,7 @@ fn add_stop_index_search_early_on_auth_failure() -> Result<()> {
       × No solution found when resolving dependencies:
       ╰─▶ Because anyio was not found in the package registry and your project depends on anyio, we can conclude that your project's requirements are unsatisfiable.
 
-          hint: An index URL (https://pypi-proxy.fly.dev/basic-auth/simple) could not be queried due to a lack of valid authentication credentials (401 Unauthorized).
+          hint: An index URL (http://[SERVER]/simple) could not be queried due to a lack of valid authentication credentials (401 Unauthorized).
       help: If you want to add the package regardless of the failed resolution, provide the `--frozen` flag to skip locking and syncing.
     "
     );
@@ -13154,12 +13232,22 @@ fn add_stop_index_search_early_on_auth_failure() -> Result<()> {
 
 /// uv should continue searching the default index if it receives an
 /// authentication failure that is specified in `ignore-error-codes`.
-#[test]
-fn add_ignore_error_codes() -> Result<()> {
+#[tokio::test]
+async fn add_ignore_error_codes() -> Result<()> {
     let context = uv_test::test_context!("3.12");
 
+    let server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .respond_with(
+            ResponseTemplate::new(401)
+                .insert_header("WWW-Authenticate", "Basic realm=\"test\""),
+        )
+        .mount(&server)
+        .await;
+
     let pyproject_toml = context.temp_dir.child("pyproject.toml");
-    pyproject_toml.write_str(indoc! { r#"
+    pyproject_toml.write_str(&formatdoc! { r#"
         [project]
         name = "foo"
         version = "1.0.0"
@@ -13167,9 +13255,10 @@ fn add_ignore_error_codes() -> Result<()> {
         dependencies = []
         [[tool.uv.index]]
         name = "my-index"
-        url = "https://pypi-proxy.fly.dev/basic-auth/simple"
+        url = "{server_url}/simple"
         ignore-error-codes = [401, 403]
-        "#
+        "#,
+        server_url = server.uri(),
     })?;
 
     uv_snapshot!(context.add().arg("anyio"), @"
@@ -13326,7 +13415,7 @@ fn add_invalid_ignore_error_code() -> Result<()> {
         dependencies = []
         [[tool.uv.index]]
         name = "my-index"
-        url = "https://pypi-proxy.fly.dev/basic-auth/simple"
+        url = "https://example.com/simple"
         ignore-error-codes = [401, 403, 1234]
         "#
     })?;
@@ -13392,12 +13481,17 @@ fn add_invalid_requires_python() -> Result<()> {
 }
 
 /// In authentication "always", the normal authentication flow should still work.
-#[test]
-fn add_auth_policy_always_with_credentials() -> Result<()> {
+#[tokio::test]
+async fn add_auth_policy_always_with_credentials() -> Result<()> {
+    use crate::mock_index;
+
     let context = uv_test::test_context!("3.12");
 
+    let server = mock_index::start_auth_index(&mock_index::packages::anyio_all()).await;
+    let server_uri = server.uri();
+
     let pyproject_toml = context.temp_dir.child("pyproject.toml");
-    pyproject_toml.write_str(indoc! { r#"
+    pyproject_toml.write_str(&formatdoc! { r#"
         [project]
         name = "foo"
         version = "1.0.0"
@@ -13406,15 +13500,16 @@ fn add_auth_policy_always_with_credentials() -> Result<()> {
 
         [[tool.uv.index]]
         name = "my-index"
-        url = "https://pypi-proxy.fly.dev/basic-auth/simple"
+        url = "{server_uri}/simple"
         authenticate = "always"
         default = true
         "#
     })?;
 
     uv_snapshot!(context.add().arg("anyio")
-        .env(EnvVars::UV_INDEX_MY_INDEX_USERNAME, "public")
-        .env(EnvVars::UV_INDEX_MY_INDEX_PASSWORD, "heron"), @"
+        .env(EnvVars::UV_INDEX_MY_INDEX_USERNAME, mock_index::USERNAME)
+        .env(EnvVars::UV_INDEX_MY_INDEX_PASSWORD, mock_index::PASSWORD)
+        .env_remove(EnvVars::UV_EXCLUDE_NEWER), @"
     success: true
     exit_code: 0
     ----- stdout -----
@@ -13516,12 +13611,39 @@ fn add_auth_policy_always_with_username_no_password() -> Result<()> {
 
 /// In authentication "never", even if the correct credentials are supplied
 /// in the URL, no authenticated requests will be allowed.
-#[test]
-fn add_auth_policy_never_with_url_credentials() -> Result<()> {
+#[tokio::test]
+async fn add_auth_policy_never_with_url_credentials() -> Result<()> {
+    use crate::mock_index;
+
     let context = uv_test::test_context!("3.12");
 
+    // Start an auth index where file URLs point back to the mock server.
+    // The "never" policy prevents forwarding auth to file download URLs,
+    // so they will hit the 401 catch-all.
+    let server = MockServer::start().await;
+    let server_uri = server.uri();
+    let host = server_uri.strip_prefix("http://").unwrap();
+
+    mock_index::mount_packages_with_auth(
+        &server,
+        "",
+        &[mock_index::PackageSimpleApi {
+            name: "anyio",
+            files: mock_index::packages::anyio_local(&server_uri),
+        }],
+        mock_index::USERNAME,
+        mock_index::PASSWORD,
+    )
+    .await;
+    mock_index::mount_401_catchall(&server).await;
+
+    let filters = [(host, "[SERVER]")]
+        .into_iter()
+        .chain(context.filters())
+        .collect::<Vec<_>>();
+
     let pyproject_toml = context.temp_dir.child("pyproject.toml");
-    pyproject_toml.write_str(indoc! { r#"
+    pyproject_toml.write_str(&formatdoc! { r#"
         [project]
         name = "foo"
         version = "1.0.0"
@@ -13530,20 +13652,23 @@ fn add_auth_policy_never_with_url_credentials() -> Result<()> {
 
         [[tool.uv.index]]
         name = "my-index"
-        url = "https://public:heron@pypi-proxy.fly.dev/basic-auth/simple"
+        url = "http://{username}:{password}@{host}/simple"
         authenticate = "never"
         default = true
-        "#
+        "#,
+        username = mock_index::USERNAME,
+        password = mock_index::PASSWORD,
     })?;
 
-    uv_snapshot!(context.add().arg("anyio"), @"
+    uv_snapshot!(filters, context.add().arg("anyio")
+        .env_remove(EnvVars::UV_EXCLUDE_NEWER), @"
     success: false
     exit_code: 2
     ----- stdout -----
 
     ----- stderr -----
-    error: Failed to fetch: `https://pypi-proxy.fly.dev/basic-auth/files/packages/14/fd/2f20c40b45e4fb4324834aea24bd4afdf1143390242c0b33774da0e2e34f/anyio-4.3.0-py3-none-any.whl.metadata`
-      Caused by: HTTP status client error (401 Unauthorized) for url (https://pypi-proxy.fly.dev/basic-auth/files/packages/14/fd/2f20c40b45e4fb4324834aea24bd4afdf1143390242c0b33774da0e2e34f/anyio-4.3.0-py3-none-any.whl.metadata)
+    error: Failed to fetch: `http://[SERVER]/files/packages/14/fd/2f20c40b45e4fb4324834aea24bd4afdf1143390242c0b33774da0e2e34f/anyio-4.3.0-py3-none-any.whl`
+      Caused by: HTTP status client error (401 Unauthorized) for url (http://[SERVER]/files/packages/14/fd/2f20c40b45e4fb4324834aea24bd4afdf1143390242c0b33774da0e2e34f/anyio-4.3.0-py3-none-any.whl)
     "
     );
 
@@ -13552,12 +13677,24 @@ fn add_auth_policy_never_with_url_credentials() -> Result<()> {
 
 /// In authentication "never", even if the correct credentials are supplied
 /// via env vars, no authenticated requests will be allowed.
-#[test]
-fn add_auth_policy_never_with_env_var_credentials() -> Result<()> {
+#[tokio::test]
+async fn add_auth_policy_never_with_env_var_credentials() -> Result<()> {
+    use crate::mock_index;
+
     let context = uv_test::test_context!("3.12");
 
+    let server = MockServer::start().await;
+    mock_index::mount_401_catchall(&server).await;
+    let server_uri = server.uri();
+    let host = server_uri.strip_prefix("http://").unwrap();
+
+    let filters = [(host, "[SERVER]")]
+        .into_iter()
+        .chain(context.filters())
+        .collect::<Vec<_>>();
+
     let pyproject_toml = context.temp_dir.child("pyproject.toml");
-    pyproject_toml.write_str(indoc! { r#"
+    pyproject_toml.write_str(&formatdoc! { r#"
         [project]
         name = "foo"
         version = "1.0.0"
@@ -13566,15 +13703,15 @@ fn add_auth_policy_never_with_env_var_credentials() -> Result<()> {
 
         [[tool.uv.index]]
         name = "my-index"
-        url = "https://pypi-proxy.fly.dev/basic-auth/simple"
+        url = "{server_uri}/simple"
         authenticate = "never"
         default = true
         "#
     })?;
 
-    uv_snapshot!(context.add().arg("anyio")
-        .env(EnvVars::UV_INDEX_MY_INDEX_USERNAME, "public")
-        .env(EnvVars::UV_INDEX_MY_INDEX_PASSWORD, "heron"), @"
+    uv_snapshot!(filters, context.add().arg("anyio")
+        .env(EnvVars::UV_INDEX_MY_INDEX_USERNAME, mock_index::USERNAME)
+        .env(EnvVars::UV_INDEX_MY_INDEX_PASSWORD, mock_index::PASSWORD), @"
     success: false
     exit_code: 1
     ----- stdout -----
@@ -13583,7 +13720,7 @@ fn add_auth_policy_never_with_env_var_credentials() -> Result<()> {
       × No solution found when resolving dependencies:
       ╰─▶ Because anyio was not found in the package registry and your project depends on anyio, we can conclude that your project's requirements are unsatisfiable.
 
-          hint: An index URL (https://pypi-proxy.fly.dev/basic-auth/simple) could not be queried due to a lack of valid authentication credentials (401 Unauthorized).
+          hint: An index URL (http://[SERVER]/simple) could not be queried due to a lack of valid authentication credentials (401 Unauthorized).
       help: If you want to add the package regardless of the failed resolution, provide the `--frozen` flag to skip locking and syncing.
     "
     );
@@ -13637,6 +13774,8 @@ fn add_auth_policy_never_without_credentials() -> Result<()> {
 /// it should fail.
 #[tokio::test]
 async fn add_redirect_cross_origin() -> Result<()> {
+    use crate::mock_index;
+
     let context = uv_test::test_context!("3.12");
     let filters = context
         .filters()
@@ -13654,11 +13793,16 @@ async fn add_redirect_cross_origin() -> Result<()> {
         "#
     })?;
 
+    // Target server that requires auth (returns 401 for unauthenticated requests)
+    let target_server = MockServer::start().await;
+    mock_index::mount_401_catchall(&target_server).await;
+    let target_base = format!("{}/simple/", target_server.uri());
+
     let redirect_server = MockServer::start().await;
 
     Mock::given(method("GET"))
-        .respond_with(|req: &wiremock::Request| {
-            let redirect_url = redirect_url_to_pypi_proxy(req);
+        .respond_with(move |req: &wiremock::Request| {
+            let redirect_url = redirect_url_to_base(req, &target_base);
             ResponseTemplate::new(302).insert_header("Location", &redirect_url)
         })
         .mount(&redirect_server)
@@ -13689,6 +13833,8 @@ async fn add_redirect_cross_origin() -> Result<()> {
 /// in the location, use those credentials for the redirect request.
 #[tokio::test]
 async fn add_redirect_cross_origin_credentials_in_location() -> Result<()> {
+    use crate::mock_index;
+
     let context = uv_test::test_context!("3.12");
     let filters = context
         .filters()
@@ -13706,15 +13852,21 @@ async fn add_redirect_cross_origin_credentials_in_location() -> Result<()> {
         "#
     })?;
 
+    // Target server: auth-protected index serving anyio + deps
+    let target_server = mock_index::start_auth_index(&mock_index::packages::anyio_all()).await;
+    let target_base = format!(
+        "http://{}:{}@{}/simple/",
+        mock_index::USERNAME,
+        mock_index::PASSWORD,
+        target_server.uri().strip_prefix("http://").unwrap()
+    );
+
     let redirect_server = MockServer::start().await;
 
     Mock::given(method("GET"))
-        .respond_with(|req: &wiremock::Request| {
+        .respond_with(move |req: &wiremock::Request| {
             // Responds with credentials in the location
-            let redirect_url = redirect_url_to_base(
-                req,
-                "https://public:heron@pypi-proxy.fly.dev/basic-auth/simple/",
-            );
+            let redirect_url = redirect_url_to_base(req, &target_base);
             ResponseTemplate::new(302).insert_header("Location", &redirect_url)
         })
         .mount(&redirect_server)
@@ -13722,7 +13874,8 @@ async fn add_redirect_cross_origin_credentials_in_location() -> Result<()> {
 
     let redirect_url = Url::parse(&redirect_server.uri())?;
 
-    uv_snapshot!(filters, context.add().arg("--default-index").arg(redirect_url.as_str()).arg("anyio"), @"
+    uv_snapshot!(filters, context.add().arg("--default-index").arg(redirect_url.as_str()).arg("anyio")
+        .env_remove(EnvVars::UV_EXCLUDE_NEWER), @"
     success: true
     exit_code: 0
     ----- stdout -----
@@ -13743,6 +13896,8 @@ async fn add_redirect_cross_origin_credentials_in_location() -> Result<()> {
 /// uv currently fails to look up keyring credentials on a cross-origin redirect.
 #[tokio::test]
 async fn add_redirect_with_keyring_cross_origin() -> Result<()> {
+    use crate::mock_index;
+
     let keyring_context = uv_test::test_context!("3.12");
 
     // Install our keyring plugin
@@ -13778,11 +13933,21 @@ async fn add_redirect_with_keyring_cross_origin() -> Result<()> {
         "#,
     })?;
 
+    // Target server that requires auth (returns 401 for unauthenticated requests)
+    let target_server = MockServer::start().await;
+    mock_index::mount_401_catchall(&target_server).await;
+    let target_host = target_server
+        .uri()
+        .strip_prefix("http://")
+        .unwrap()
+        .to_string();
+    let target_base = format!("{}/simple/", target_server.uri());
+
     let redirect_server = MockServer::start().await;
 
     Mock::given(method("GET"))
-        .respond_with(|req: &wiremock::Request| {
-            let redirect_url = redirect_url_to_pypi_proxy(req);
+        .respond_with(move |req: &wiremock::Request| {
+            let redirect_url = redirect_url_to_base(req, &target_base);
             ResponseTemplate::new(302).insert_header("Location", &redirect_url)
         })
         .mount(&redirect_server)
@@ -13791,10 +13956,15 @@ async fn add_redirect_with_keyring_cross_origin() -> Result<()> {
     let mut redirect_url = Url::parse(&redirect_server.uri())?;
     let _ = redirect_url.set_username("public");
 
+    // Keyring has credentials for the target server, but cross-origin
+    // redirect keyring lookup doesn't work, so this will fail.
+    let keyring_credentials =
+        format!(r#"{{"{target_host}": {{"public": "heron"}}}}"#);
+
     uv_snapshot!(filters, context.add().arg("--default-index")
         .arg(redirect_url.as_str())
         .arg("anyio")
-        .env(EnvVars::KEYRING_TEST_CREDENTIALS, r#"{"pypi-proxy.fly.dev": {"public": "heron"}}"#)
+        .env(EnvVars::KEYRING_TEST_CREDENTIALS, &keyring_credentials)
         .env(EnvVars::PATH, venv_bin_path(&keyring_context.venv)), @"
     success: false
     exit_code: 1
@@ -13818,6 +13988,8 @@ async fn add_redirect_with_keyring_cross_origin() -> Result<()> {
 /// for the new location.
 #[tokio::test]
 async fn pip_install_redirect_with_netrc_cross_origin() -> Result<()> {
+    use crate::mock_index;
+
     let context = uv_test::test_context!("3.12");
     let filters = context
         .filters()
@@ -13825,14 +13997,23 @@ async fn pip_install_redirect_with_netrc_cross_origin() -> Result<()> {
         .chain([(r"127\.0\.0\.1:\d*", "[LOCALHOST]")])
         .collect::<Vec<_>>();
 
+    // Target server: auth-protected index serving anyio + deps
+    let target_server = mock_index::start_auth_index(&mock_index::packages::anyio_all()).await;
+    let target_base = format!("{}/simple/", target_server.uri());
+
+    // netrc uses hostname only (no port) for machine matching
     let netrc = context.temp_dir.child(".netrc");
-    netrc.write_str("machine pypi-proxy.fly.dev login public password heron")?;
+    netrc.write_str(&format!(
+        "machine 127.0.0.1 login {} password {}",
+        mock_index::USERNAME,
+        mock_index::PASSWORD,
+    ))?;
 
     let redirect_server = MockServer::start().await;
 
     Mock::given(method("GET"))
-        .respond_with(|req: &wiremock::Request| {
-            let redirect_url = redirect_url_to_pypi_proxy(req);
+        .respond_with(move |req: &wiremock::Request| {
+            let redirect_url = redirect_url_to_base(req, &target_base);
             ResponseTemplate::new(302).insert_header("Location", &redirect_url)
         })
         .mount(&redirect_server)
@@ -13846,6 +14027,7 @@ async fn pip_install_redirect_with_netrc_cross_origin() -> Result<()> {
         .arg("--index-url")
         .arg(redirect_url.as_str())
         .env(EnvVars::NETRC, netrc.to_str().unwrap())
+        .env_remove(EnvVars::UV_EXCLUDE_NEWER)
         .arg("--strict"), @"
     success: true
     exit_code: 0
@@ -13864,10 +14046,6 @@ async fn pip_install_redirect_with_netrc_cross_origin() -> Result<()> {
     context.assert_command("import anyio").success();
 
     Ok(())
-}
-
-fn redirect_url_to_pypi_proxy(req: &wiremock::Request) -> String {
-    redirect_url_to_base(req, "https://pypi-proxy.fly.dev/basic-auth/simple/")
 }
 
 fn redirect_url_to_base(req: &wiremock::Request, base: &str) -> String {

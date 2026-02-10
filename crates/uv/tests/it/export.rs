@@ -1406,10 +1406,9 @@ async fn requirements_txt_https_credentials() -> Result<()> {
     mock_index::mount_file_redirects_auth(&server, mock_index::USERNAME, mock_index::PASSWORD)
         .await;
     mock_index::mount_401_catchall(&server).await;
-    let server_uri = server.uri();
-    let host = server_uri.strip_prefix("http://").unwrap();
+    let host = mock_index::host(&server);
 
-    let filters = [(host, "[SERVER]")]
+    let filters = [(host.as_str(), "[SERVER]")]
         .into_iter()
         .chain(context.filters())
         .collect::<Vec<_>>();
@@ -4602,10 +4601,9 @@ async fn pep_751_https_credentials() -> Result<()> {
     mock_index::mount_file_redirects_auth(&server, mock_index::USERNAME, mock_index::PASSWORD)
         .await;
     mock_index::mount_401_catchall(&server).await;
-    let server_uri = server.uri();
-    let host = server_uri.strip_prefix("http://").unwrap();
+    let host = mock_index::host(&server);
 
-    let filters = [(host, "[SERVER]")]
+    let filters = [(host.as_str(), "[SERVER]")]
         .into_iter()
         .chain(context.filters())
         .collect::<Vec<_>>();

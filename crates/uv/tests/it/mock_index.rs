@@ -1,13 +1,9 @@
 //! Helpers for setting up wiremock-based mock PyPI indexes in integration tests.
-//!
-//! These replace the external `pypi-proxy.fly.dev` service that was previously used
-//! for testing authenticated index access.
 
 use serde_json::{json, Value};
 use wiremock::matchers::{basic_auth, method, path_regex};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-/// Well-known test credentials used by the mock index.
 pub(crate) const USERNAME: &str = "public";
 pub(crate) const PASSWORD: &str = "heron";
 
@@ -15,22 +11,23 @@ pub(crate) const PASSWORD: &str = "heron";
 pub(crate) const INICONFIG_WHEEL_PATH: &str =
     "/files/packages/ef/a6/62565a6e1cf69e10f5727360368e451d4b7f58beeac6173dc9db836a5b46/iniconfig-2.0.0-py3-none-any.whl";
 
-/// Create a [`MockServer`] that serves a Simple API index with basic auth.
-///
-/// - Requests with valid credentials get a 200 response with the Simple API JSON.
-/// - Requests without valid credentials get a 401 response.
-///
-/// The returned URL is the base URL of the server (e.g., `http://127.0.0.1:PORT`).
-/// Use `format!("{}/simple", server.uri())` for the index URL.
+/// Extract the `host:port` authority from a [`MockServer`].
+pub(crate) fn host(server: &MockServer) -> String {
+    server
+        .uri()
+        .strip_prefix("http://")
+        .unwrap()
+        .to_string()
+}
+
+/// Start a [`MockServer`] with authenticated Simple API endpoints and a 401 catch-all.
 pub(crate) async fn start_auth_index(packages: &[PackageSimpleApi]) -> MockServer {
     let server = MockServer::start().await;
     mount_auth_index(&server, packages, USERNAME, PASSWORD).await;
     server
 }
 
-/// Mount authenticated Simple API endpoints on an existing [`MockServer`].
-///
-/// Mounts package endpoints at `/simple/{name}` and a catch-all 401.
+/// Mount authenticated Simple API endpoints at `/simple/{name}` and a catch-all 401.
 pub(crate) async fn mount_auth_index(
     server: &MockServer,
     packages: &[PackageSimpleApi],
@@ -41,10 +38,7 @@ pub(crate) async fn mount_auth_index(
     mount_401_catchall(server).await;
 }
 
-/// Mount authenticated Simple API endpoints at a path prefix.
-///
-/// For example, `base_path = "/basic-auth"` mounts at `/basic-auth/simple/{name}`.
-/// An empty string mounts at `/simple/{name}`.
+/// Mount authenticated Simple API endpoints at `{base_path}/simple/{name}`.
 pub(crate) async fn mount_packages_with_auth(
     server: &MockServer,
     base_path: &str,
@@ -53,11 +47,7 @@ pub(crate) async fn mount_packages_with_auth(
     password: &str,
 ) {
     for pkg in packages {
-        let body = json!({
-            "meta": {"api-version": "1.1"},
-            "name": pkg.name,
-            "files": pkg.files,
-        });
+        let body = json!({ "files": pkg.files });
 
         Mock::given(method("GET"))
             .and(path_regex(format!(
@@ -73,9 +63,8 @@ pub(crate) async fn mount_packages_with_auth(
             .await;
     }
 
-    // Catch-all for authenticated requests to non-existent packages on this index.
-    // Returns 404 so uv knows the package doesn't exist (rather than falling through
-    // to the global 401 catch-all which would be treated as an auth failure).
+    // 404 for authenticated requests to non-existent packages (so uv doesn't
+    // treat it as an auth failure from the global 401 catch-all).
     Mock::given(method("GET"))
         .and(path_regex(format!(r"^{base_path}/simple/.+")))
         .and(basic_auth(username, password))
@@ -85,28 +74,19 @@ pub(crate) async fn mount_packages_with_auth(
         .await;
 }
 
-/// Mount unauthenticated Simple API endpoints on a [`MockServer`].
-///
-/// Mounts package endpoints at `/simple/{name}`.
+/// Mount unauthenticated Simple API endpoints at `/simple/{name}`.
 pub(crate) async fn mount_index(server: &MockServer, packages: &[PackageSimpleApi]) {
     mount_packages(server, "", packages).await;
 }
 
-/// Mount unauthenticated Simple API endpoints at a path prefix.
-///
-/// For example, `base_path = "/relative"` mounts at `/relative/simple/{name}`.
-/// An empty string mounts at `/simple/{name}`.
+/// Mount unauthenticated Simple API endpoints at `{base_path}/simple/{name}`.
 pub(crate) async fn mount_packages(
     server: &MockServer,
     base_path: &str,
     packages: &[PackageSimpleApi],
 ) {
     for pkg in packages {
-        let body = json!({
-            "meta": {"api-version": "1.1"},
-            "name": pkg.name,
-            "files": pkg.files,
-        });
+        let body = json!({ "files": pkg.files });
 
         Mock::given(method("GET"))
             .and(path_regex(format!(
@@ -122,10 +102,7 @@ pub(crate) async fn mount_packages(
     }
 }
 
-/// Mount a catch-all 401 response with `WWW-Authenticate` header.
-///
-/// Uses lowest priority so that more-specific mocks (e.g. file endpoints
-/// mounted later) take precedence.
+/// Mount a catch-all 401 with lowest priority.
 pub(crate) async fn mount_401_catchall(server: &MockServer) {
     Mock::given(method("GET"))
         .respond_with(
@@ -137,11 +114,7 @@ pub(crate) async fn mount_401_catchall(server: &MockServer) {
         .await;
 }
 
-/// Mount authenticated file-serving endpoints that redirect `/files/**` to real PyPI CDN.
-///
-/// Authenticated requests to `/files/packages/...` get a 302 redirect to
-/// `https://files.pythonhosted.org/packages/...`.
-/// Unauthenticated requests hit the catch-all 401 from [`mount_401_catchall`].
+/// Redirect authenticated `/files/**` requests to real PyPI CDN.
 pub(crate) async fn mount_file_redirects_auth(
     server: &MockServer,
     username: &str,
@@ -159,7 +132,7 @@ pub(crate) async fn mount_file_redirects_auth(
         .await;
 }
 
-/// Mount unauthenticated file-serving endpoints that redirect `/files/**` to real PyPI CDN.
+/// Redirect unauthenticated `/files/**` requests to real PyPI CDN.
 pub(crate) async fn mount_file_redirects(server: &MockServer) {
     Mock::given(method("GET"))
         .and(path_regex(r"^/files/"))
@@ -172,18 +145,15 @@ pub(crate) async fn mount_file_redirects(server: &MockServer) {
         .await;
 }
 
-/// Description of a package in the Simple API.
 pub(crate) struct PackageSimpleApi {
     pub(crate) name: &'static str,
     pub(crate) files: Value,
 }
 
-/// Pre-built Simple API entries for common test packages.
+/// Pre-built [`PackageSimpleApi`] entries for common test packages.
 ///
-/// Each function returns a [`PackageSimpleApi`] with the package name and file entries.
-/// Functions named `*_local` return file URLs pointing to the mock server root
+/// `*_local` variants return file URLs pointing to the mock server root
 /// (for use with [`mount_file_redirects_auth`] / [`mount_file_redirects`]).
-/// Other functions return file URLs pointing to real PyPI CDN.
 pub(crate) mod packages {
     use serde_json::json;
 
@@ -209,9 +179,6 @@ pub(crate) mod packages {
     }
 
     /// Iniconfig with file URLs pointing to the mock server root.
-    ///
-    /// Use this with [`super::mount_file_redirects_auth`] or [`super::mount_file_redirects`]
-    /// when tests need to verify file download authentication behavior.
     pub(crate) fn iniconfig_local(server_uri: &str) -> super::PackageSimpleApi {
         super::PackageSimpleApi {
             name: "iniconfig",
@@ -233,11 +200,7 @@ pub(crate) mod packages {
         }
     }
 
-    /// Iniconfig with relative file URLs (for testing relative link resolution).
-    ///
-    /// URLs are relative to the index page URL. When the index is at
-    /// `/relative/simple/iniconfig/`, we need `../../../files/packages/...`
-    /// to resolve to `/files/packages/...` (up 3 levels: iniconfig -> simple -> relative -> /).
+    /// Iniconfig with relative file URLs (`../../../files/packages/...`).
     pub(crate) fn iniconfig_relative() -> super::PackageSimpleApi {
         super::PackageSimpleApi {
             name: "iniconfig",
@@ -368,10 +331,7 @@ pub(crate) mod packages {
         }
     }
 
-    /// Anyio with file URLs pointing to the mock server root (for testing auth on file downloads).
-    ///
-    /// Use this when the test needs file download URLs on the same host as the index,
-    /// e.g. for testing `authenticate = "never"` where credentials aren't forwarded to file URLs.
+    /// Anyio with file URLs pointing to the mock server root.
     pub(crate) fn anyio_local(server_uri: &str) -> super::PackageSimpleApi {
         super::PackageSimpleApi {
             name: "anyio",
@@ -393,7 +353,6 @@ pub(crate) mod packages {
         }
     }
 
-    /// All packages needed for `anyio` resolution (anyio + its dependencies).
     pub(crate) fn anyio_all() -> Vec<super::PackageSimpleApi> {
         vec![anyio(), idna(), sniffio()]
     }

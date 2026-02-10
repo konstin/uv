@@ -16,10 +16,10 @@ async fn add_package_native_auth_realm() -> Result<()> {
 
     let server = mock_index::start_auth_index(&mock_index::packages::anyio_all()).await;
     let server_uri = server.uri();
-    let host = server_uri.strip_prefix("http://").unwrap();
+    let host = mock_index::host(&server);
     let index_url = format!("http://{}@{}/simple", mock_index::USERNAME, host);
 
-    let filters = [(host, "[SERVER]")]
+    let filters = [(host.as_str(), "[SERVER]")]
         .into_iter()
         .chain(context.filters())
         .collect::<Vec<_>>();
@@ -147,14 +147,14 @@ async fn add_package_native_auth() -> Result<()> {
     mock_index::mount_401_catchall(&server).await;
 
     let server_uri = server.uri();
-    let host = server_uri.strip_prefix("http://").unwrap();
+    let host = mock_index::host(&server);
     let index_url = format!(
         "http://{}@{}/basic-auth/simple",
         mock_index::USERNAME,
         host
     );
 
-    let filters = [(host, "[SERVER]")]
+    let filters = [(host.as_str(), "[SERVER]")]
         .into_iter()
         .chain(context.filters())
         .collect::<Vec<_>>();

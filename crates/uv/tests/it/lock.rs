@@ -9795,7 +9795,7 @@ async fn lock_redact_https() -> Result<()> {
     mock_index::mount_file_redirects_auth(&server, mock_index::USERNAME, mock_index::PASSWORD)
         .await;
 
-    let host = server_uri.strip_prefix("http://").unwrap();
+    let host = mock_index::host(&server);
     let index_url_with_creds = format!(
         "http://{}:{}@{}/simple",
         mock_index::USERNAME,
@@ -10357,6 +10357,7 @@ async fn lock_redact_index_sources() -> Result<()> {
     let server = mock_index::start_auth_index(&[mock_index::packages::iniconfig()])
     .await;
     let server_uri = server.uri();
+    let host = mock_index::host(&server);
 
     let filters = [(server_uri.as_str(), "http://[SERVER]")]
         .into_iter()
@@ -10381,7 +10382,6 @@ async fn lock_redact_index_sources() -> Result<()> {
         "#,
         username = mock_index::USERNAME,
         password = mock_index::PASSWORD,
-        host = server_uri.strip_prefix("http://").unwrap(),
     ))?;
 
     uv_snapshot!(&filters, context.lock()
@@ -10467,14 +10467,13 @@ async fn lock_redact_url_sources() -> Result<()> {
     let context = uv_test::test_context!("3.12").with_filtered_link_mode_warning();
 
     let server = MockServer::start().await;
-    let server_uri = server.uri();
 
     // Mount authenticated file endpoint that redirects to real PyPI CDN.
     mock_index::mount_file_redirects_auth(&server, mock_index::USERNAME, mock_index::PASSWORD)
         .await;
     mock_index::mount_401_catchall(&server).await;
 
-    let host = server_uri.strip_prefix("http://").unwrap();
+    let host = mock_index::host(&server);
     let wheel_url = format!(
         "http://{}:{}@{}{}",
         mock_index::USERNAME,
@@ -10485,7 +10484,7 @@ async fn lock_redact_url_sources() -> Result<()> {
 
     // Filter the host:port to [SERVER] — this catches URLs with embedded credentials
     // (e.g., http://public:heron@127.0.0.1:PORT/...) that the full server_uri filter misses.
-    let filters = [(host, "[SERVER]")]
+    let filters = [(host.as_str(), "[SERVER]")]
         .into_iter()
         .chain(context.filters())
         .collect::<Vec<_>>();
@@ -10685,7 +10684,6 @@ async fn lock_multiple_indexes_same_realm_different_credentials() -> Result<()> 
     let context = uv_test::test_context!("3.12");
 
     let server = MockServer::start().await;
-    let server_uri = server.uri();
 
     // Mount two different auth-protected indexes on the same server (same realm)
     // with different credentials.
@@ -10707,7 +10705,7 @@ async fn lock_multiple_indexes_same_realm_different_credentials() -> Result<()> 
     .await;
     mock_index::mount_401_catchall(&server).await;
 
-    let host = server_uri.strip_prefix("http://").unwrap();
+    let host = mock_index::host(&server);
 
     let pyproject_toml = context.temp_dir.child("pyproject.toml");
     pyproject_toml.write_str(&format!(
@@ -10759,7 +10757,6 @@ async fn lock_multiple_indexes_same_realm_different_credentials_trailing_slash()
     let context = uv_test::test_context!("3.12");
 
     let server = MockServer::start().await;
-    let server_uri = server.uri();
 
     mock_index::mount_packages_with_auth(
         &server,
@@ -10779,7 +10776,7 @@ async fn lock_multiple_indexes_same_realm_different_credentials_trailing_slash()
     .await;
     mock_index::mount_401_catchall(&server).await;
 
-    let host = server_uri.strip_prefix("http://").unwrap();
+    let host = mock_index::host(&server);
 
     let pyproject_toml = context.temp_dir.child("pyproject.toml");
     pyproject_toml.write_str(&format!(
@@ -14637,7 +14634,7 @@ async fn lock_change_index() -> Result<()> {
     .await;
     let server_uri = server.uri();
 
-    let host = server_uri.strip_prefix("http://").unwrap();
+    let host = mock_index::host(&server);
     let index_url_with_creds = format!(
         "http://{}:{}@{}/simple",
         mock_index::USERNAME,
@@ -22258,9 +22255,9 @@ async fn lock_keyring_credentials() -> Result<()> {
     let server = mock_index::start_auth_index(&[mock_index::packages::iniconfig()])
     .await;
     let server_uri = server.uri();
-    let host = server_uri.strip_prefix("http://").unwrap();
+    let host = mock_index::host(&server);
 
-    let filters = [(host, "[SERVER]")]
+    let filters = [(host.as_str(), "[SERVER]")]
         .into_iter()
         .chain(context.filters())
         .collect::<Vec<_>>();
@@ -22373,9 +22370,9 @@ async fn lock_keyring_explicit_always() -> Result<()> {
     let server = mock_index::start_auth_index(&[mock_index::packages::iniconfig()])
     .await;
     let server_uri = server.uri();
-    let host = server_uri.strip_prefix("http://").unwrap();
+    let host = mock_index::host(&server);
 
-    let filters = [(host, "[SERVER]")]
+    let filters = [(host.as_str(), "[SERVER]")]
         .into_iter()
         .chain(context.filters())
         .collect::<Vec<_>>();
@@ -22476,9 +22473,9 @@ async fn lock_keyring_credentials_always_authenticate_fetches_username() -> Resu
     let server = mock_index::start_auth_index(&[mock_index::packages::iniconfig()])
     .await;
     let server_uri = server.uri();
-    let host = server_uri.strip_prefix("http://").unwrap();
+    let host = mock_index::host(&server);
 
-    let filters = [(host, "[SERVER]")]
+    let filters = [(host.as_str(), "[SERVER]")]
         .into_iter()
         .chain(context.filters())
         .collect::<Vec<_>>();
@@ -22583,9 +22580,9 @@ async fn lock_keyring_credentials_always_authenticate_unsupported_mode() -> Resu
     let server = mock_index::start_auth_index(&[mock_index::packages::iniconfig()])
     .await;
     let server_uri = server.uri();
-    let host = server_uri.strip_prefix("http://").unwrap();
+    let host = mock_index::host(&server);
 
-    let filters = [(host, "[SERVER]")]
+    let filters = [(host.as_str(), "[SERVER]")]
         .into_iter()
         .chain(context.filters())
         .collect::<Vec<_>>();

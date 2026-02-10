@@ -4189,8 +4189,7 @@ async fn tool_install_credentials() {
 
     let server = mock_index::start_auth_index(&[mock_index::packages::executable_application()])
     .await;
-    let server_uri = server.uri();
-    let host = server_uri.strip_prefix("http://").unwrap();
+    let host = mock_index::host(&server);
     let index_url = format!(
         "http://{}:{}@{}/simple",
         mock_index::USERNAME,
@@ -4198,7 +4197,7 @@ async fn tool_install_credentials() {
         host
     );
 
-    let filters: Vec<(&str, &str)> = vec![(host, "[SERVER]")]
+    let filters: Vec<(&str, &str)> = vec![(host.as_str(), "[SERVER]")]
         .into_iter()
         .chain(context.filters())
         .collect();
@@ -4287,10 +4286,9 @@ async fn tool_install_default_credentials() -> Result<()> {
 
     let server = mock_index::start_auth_index(&[mock_index::packages::executable_application()])
     .await;
-    let server_uri = server.uri();
-    let host = server_uri.strip_prefix("http://").unwrap();
+    let host = mock_index::host(&server);
 
-    let filters: Vec<(&str, &str)> = vec![(host, "[SERVER]")]
+    let filters: Vec<(&str, &str)> = vec![(host.as_str(), "[SERVER]")]
         .into_iter()
         .chain(context.filters())
         .collect();

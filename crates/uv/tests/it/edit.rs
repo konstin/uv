@@ -10607,12 +10607,11 @@ async fn add_index_credentials() -> Result<()> {
 
     let server = mock_index::start_auth_index(&[mock_index::packages::iniconfig()])
     .await;
-    let server_uri = server.uri();
-    let host = server_uri.strip_prefix("http://").unwrap();
+    let host = mock_index::host(&server);
     let default_index =
         format!("http://{}:{}@{}/simple", mock_index::USERNAME, mock_index::PASSWORD, host);
 
-    let filters = [(host, "[SERVER]")]
+    let filters = [(host.as_str(), "[SERVER]")]
         .into_iter()
         .chain(context.filters())
         .collect::<Vec<_>>();
@@ -10709,11 +10708,11 @@ async fn existing_index_credentials() -> Result<()> {
     let server = mock_index::start_auth_index(&[mock_index::packages::iniconfig()])
     .await;
     let server_uri = server.uri();
-    let host = server_uri.strip_prefix("http://").unwrap();
+    let host = mock_index::host(&server);
     let default_index =
         format!("http://{}:{}@{}/simple", mock_index::USERNAME, mock_index::PASSWORD, host);
 
-    let filters = [(host, "[SERVER]")]
+    let filters = [(host.as_str(), "[SERVER]")]
         .into_iter()
         .chain(context.filters())
         .collect::<Vec<_>>();
@@ -13054,9 +13053,9 @@ async fn add_index_url_in_keyring() -> Result<()> {
 
     let server = mock_index::start_auth_index(&mock_index::packages::anyio_all()).await;
     let server_uri = server.uri();
-    let host = server_uri.strip_prefix("http://").unwrap();
+    let host = mock_index::host(&server);
 
-    let filters = [(host, "[SERVER]")]
+    let filters = [(host.as_str(), "[SERVER]")]
         .into_iter()
         .chain(context.filters())
         .collect::<Vec<_>>();
@@ -13128,9 +13127,9 @@ async fn add_full_url_in_keyring() -> Result<()> {
     let server = MockServer::start().await;
     mock_index::mount_401_catchall(&server).await;
     let server_uri = server.uri();
-    let host = server_uri.strip_prefix("http://").unwrap();
+    let host = mock_index::host(&server);
 
-    let filters = [(host, "[SERVER]")]
+    let filters = [(host.as_str(), "[SERVER]")]
         .into_iter()
         .chain(context.filters())
         .collect::<Vec<_>>();
@@ -13188,9 +13187,9 @@ async fn add_stop_index_search_early_on_auth_failure() -> Result<()> {
     let server = MockServer::start().await;
     mock_index::mount_401_catchall(&server).await;
     let server_uri = server.uri();
-    let host = server_uri.strip_prefix("http://").unwrap();
+    let host = mock_index::host(&server);
 
-    let filters = [(host, "[SERVER]")]
+    let filters = [(host.as_str(), "[SERVER]")]
         .into_iter()
         .chain(context.filters())
         .collect::<Vec<_>>();
@@ -13616,7 +13615,7 @@ async fn add_auth_policy_never_with_url_credentials() -> Result<()> {
     // so they will hit the 401 catch-all.
     let server = MockServer::start().await;
     let server_uri = server.uri();
-    let host = server_uri.strip_prefix("http://").unwrap();
+    let host = mock_index::host(&server);
 
     mock_index::mount_packages_with_auth(
         &server,
@@ -13628,7 +13627,7 @@ async fn add_auth_policy_never_with_url_credentials() -> Result<()> {
     .await;
     mock_index::mount_401_catchall(&server).await;
 
-    let filters = [(host, "[SERVER]")]
+    let filters = [(host.as_str(), "[SERVER]")]
         .into_iter()
         .chain(context.filters())
         .collect::<Vec<_>>();
@@ -13677,9 +13676,9 @@ async fn add_auth_policy_never_with_env_var_credentials() -> Result<()> {
     let server = MockServer::start().await;
     mock_index::mount_401_catchall(&server).await;
     let server_uri = server.uri();
-    let host = server_uri.strip_prefix("http://").unwrap();
+    let host = mock_index::host(&server);
 
-    let filters = [(host, "[SERVER]")]
+    let filters = [(host.as_str(), "[SERVER]")]
         .into_iter()
         .chain(context.filters())
         .collect::<Vec<_>>();
@@ -13849,7 +13848,7 @@ async fn add_redirect_cross_origin_credentials_in_location() -> Result<()> {
         "http://{}:{}@{}/simple/",
         mock_index::USERNAME,
         mock_index::PASSWORD,
-        target_server.uri().strip_prefix("http://").unwrap()
+        mock_index::host(&target_server)
     );
 
     let redirect_server = MockServer::start().await;
@@ -13927,11 +13926,7 @@ async fn add_redirect_with_keyring_cross_origin() -> Result<()> {
     // Target server that requires auth (returns 401 for unauthenticated requests)
     let target_server = MockServer::start().await;
     mock_index::mount_401_catchall(&target_server).await;
-    let target_host = target_server
-        .uri()
-        .strip_prefix("http://")
-        .unwrap()
-        .to_string();
+    let target_host = mock_index::host(&target_server);
     let target_base = format!("{}/simple/", target_server.uri());
 
     let redirect_server = MockServer::start().await;

@@ -319,7 +319,7 @@ async fn cache_uv_toml_credentials() -> Result<()> {
     let server = mock_index::start_auth_index(&[mock_index::packages::iniconfig()])
     .await;
     let server_uri = server.uri();
-    let host = server_uri.strip_prefix("http://").unwrap();
+    let host = mock_index::host(&server);
 
     let uv_toml = context.temp_dir.child("uv.toml");
     uv_toml.write_str(&formatdoc! {r#"
@@ -327,7 +327,7 @@ async fn cache_uv_toml_credentials() -> Result<()> {
     extra-index-url = ["http://{}:{}@{}/simple/"]
     "#, mock_index::USERNAME, mock_index::PASSWORD, host})?;
 
-    let filters = [(server_uri.as_str(), "http://[SERVER]"), (host, "[SERVER]")]
+    let filters = [(server_uri.as_str(), "http://[SERVER]"), (host.as_str(), "[SERVER]")]
         .into_iter()
         .chain(context.filters())
         .collect::<Vec<_>>();
@@ -5727,7 +5727,7 @@ async fn install_package_basic_auth_from_url() {
     let context = uv_test::test_context!("3.12");
     let server = mock_index::start_auth_index(&mock_index::packages::anyio_all()).await;
     let server_uri = server.uri();
-    let host = server_uri.strip_prefix("http://").unwrap();
+    let host = mock_index::host(&server);
     let index_url = format!(
         "http://{}:{}@{}/simple",
         mock_index::USERNAME,
@@ -5968,7 +5968,7 @@ async fn install_package_basic_auth_from_keyring() {
     let context = uv_test::test_context!("3.12");
     let server = mock_index::start_auth_index(&mock_index::packages::anyio_all()).await;
     let server_uri = server.uri();
-    let host = server_uri.strip_prefix("http://").unwrap();
+    let host = mock_index::host(&server);
     let index_url = format!("http://{}@{}/simple", mock_index::USERNAME, host);
 
     // Install our keyring plugin
@@ -5987,7 +5987,7 @@ async fn install_package_basic_auth_from_keyring() {
     let keyring_credentials =
         format!(r#"{{"{host}": {{"{}": "{}"}}}}"#, mock_index::USERNAME, mock_index::PASSWORD);
 
-    let filters = [(server_uri.as_str(), "http://[SERVER]"), (host, "[SERVER]")]
+    let filters = [(server_uri.as_str(), "http://[SERVER]"), (host.as_str(), "[SERVER]")]
         .into_iter()
         .chain(context.filters())
         .collect::<Vec<_>>();
@@ -6030,7 +6030,7 @@ async fn install_package_basic_auth_from_keyring_wrong_password() {
     let context = uv_test::test_context!("3.12");
     let server = mock_index::start_auth_index(&mock_index::packages::anyio_all()).await;
     let server_uri = server.uri();
-    let host = server_uri.strip_prefix("http://").unwrap();
+    let host = mock_index::host(&server);
     let index_url = format!("http://{}@{}/simple", mock_index::USERNAME, host);
 
     // Install our keyring plugin
@@ -6049,7 +6049,7 @@ async fn install_package_basic_auth_from_keyring_wrong_password() {
     let keyring_credentials =
         format!(r#"{{"{host}": {{"{}": "foobar"}}}}"#, mock_index::USERNAME);
 
-    let filters = [(server_uri.as_str(), "http://[SERVER]"), (host, "[SERVER]")]
+    let filters = [(server_uri.as_str(), "http://[SERVER]"), (host.as_str(), "[SERVER]")]
         .into_iter()
         .chain(context.filters())
         .collect::<Vec<_>>();
@@ -6088,7 +6088,7 @@ async fn install_package_basic_auth_from_keyring_wrong_username() {
     let context = uv_test::test_context!("3.12");
     let server = mock_index::start_auth_index(&mock_index::packages::anyio_all()).await;
     let server_uri = server.uri();
-    let host = server_uri.strip_prefix("http://").unwrap();
+    let host = mock_index::host(&server);
     let index_url = format!("http://{}@{}/simple", mock_index::USERNAME, host);
 
     // Install our keyring plugin
@@ -6108,7 +6108,7 @@ async fn install_package_basic_auth_from_keyring_wrong_username() {
     let keyring_credentials =
         format!(r#"{{"{host}": {{"other": "{}"}}}}"#, mock_index::PASSWORD);
 
-    let filters = [(server_uri.as_str(), "http://[SERVER]"), (host, "[SERVER]")]
+    let filters = [(server_uri.as_str(), "http://[SERVER]"), (host.as_str(), "[SERVER]")]
         .into_iter()
         .chain(context.filters())
         .collect::<Vec<_>>();
@@ -6146,7 +6146,7 @@ async fn install_index_with_relative_links_authenticated() {
     let context = uv_test::test_context!("3.12");
     let server = mock_index::start_auth_index(&mock_index::packages::anyio_all()).await;
     let server_uri = server.uri();
-    let host = server_uri.strip_prefix("http://").unwrap();
+    let host = mock_index::host(&server);
     let index_url = format!(
         "http://{}:{}@{}/simple",
         mock_index::USERNAME,

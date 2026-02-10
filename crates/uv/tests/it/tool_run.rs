@@ -3622,10 +3622,9 @@ async fn tool_run_latest_keyring_auth() {
 
     let server = mock_index::start_auth_index(&[mock_index::packages::executable_application()])
     .await;
-    let server_uri = server.uri();
-    let host = server_uri.strip_prefix("http://").unwrap();
+    let host = mock_index::host(&server);
 
-    let filters: Vec<(&str, &str)> = vec![(host, "[SERVER]")]
+    let filters: Vec<(&str, &str)> = vec![(host.as_str(), "[SERVER]")]
         .into_iter()
         .chain(context.filters())
         .collect();

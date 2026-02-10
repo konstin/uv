@@ -14,7 +14,7 @@ use uv_test::uv_snapshot;
 async fn add_package_native_auth_realm() -> Result<()> {
     let context = uv_test::test_context!("3.12").with_real_home();
 
-    let server = mock_index::start_auth_index(&mock_index::packages::anyio_all()).await;
+    let server = mock_index::start_auth_index(mock_index::ANYIO_PACKAGES).await;
     let server_uri = server.uri();
     let host = mock_index::host(&server);
     let index_url = format!("http://{}@{}/simple", mock_index::USERNAME, host);
@@ -139,7 +139,7 @@ async fn add_package_native_auth() -> Result<()> {
     mock_index::mount_packages_with_auth(
         &server,
         "/basic-auth",
-        &mock_index::packages::anyio_all(),
+        mock_index::ANYIO_PACKAGES,
         mock_index::USERNAME,
         mock_index::PASSWORD,
     )

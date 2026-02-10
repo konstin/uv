@@ -3620,8 +3620,7 @@ async fn tool_run_latest_keyring_auth() {
     let tool_dir = context.temp_dir.child("tools");
     let bin_dir = context.temp_dir.child("bin");
 
-    let server = mock_index::start_auth_index(&[mock_index::packages::executable_application()])
-    .await;
+    let server = mock_index::start_auth_index_with_exclude_newer(&["executable-application"], "2025-02-01T00:00:00Z").await;
     let host = mock_index::host(&server);
 
     let filters: Vec<(&str, &str)> = vec![(host.as_str(), "[SERVER]")]

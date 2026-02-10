@@ -9441,7 +9441,7 @@ async fn lock_index_workspace_member() -> Result<()> {
     use crate::mock_index;
 
     let context = uv_test::test_context!("3.12");
-    let server = mock_index::start_auth_index(&[mock_index::packages::iniconfig()])
+    let server = mock_index::start_auth_index(&["iniconfig"])
     .await;
     let server_uri = server.uri();
 
@@ -9783,14 +9783,8 @@ async fn lock_redact_https() -> Result<()> {
     // Use iniconfig_local so file URLs point to the mock server (auth required).
     let server = MockServer::start().await;
     let server_uri = server.uri();
-    let iniconfig_pkg = mock_index::packages::iniconfig_local(&server_uri);
-    mock_index::mount_auth_index(
-        &server,
-        &[iniconfig_pkg],
-        mock_index::USERNAME,
-        mock_index::PASSWORD,
-    )
-    .await;
+    mock_index::mount_packages_local_with_auth(&server, "", &["iniconfig"], mock_index::USERNAME, mock_index::PASSWORD).await;
+    mock_index::mount_401_catchall(&server).await;
     // Authenticated file requests redirect to real PyPI CDN.
     mock_index::mount_file_redirects_auth(&server, mock_index::USERNAME, mock_index::PASSWORD)
         .await;
@@ -10354,7 +10348,7 @@ async fn lock_redact_index_sources() -> Result<()> {
     use crate::mock_index;
 
     let context = uv_test::test_context!("3.12").with_filtered_link_mode_warning();
-    let server = mock_index::start_auth_index(&[mock_index::packages::iniconfig()])
+    let server = mock_index::start_auth_index(&["iniconfig"])
     .await;
     let server_uri = server.uri();
     let host = mock_index::host(&server);
@@ -10584,7 +10578,7 @@ async fn lock_env_credentials() -> Result<()> {
     use crate::mock_index;
 
     let context = uv_test::test_context!("3.12");
-    let server = mock_index::start_auth_index(&[mock_index::packages::iniconfig()])
+    let server = mock_index::start_auth_index(&["iniconfig"])
     .await;
     let server_uri = server.uri();
 
@@ -10690,7 +10684,7 @@ async fn lock_multiple_indexes_same_realm_different_credentials() -> Result<()> 
     mock_index::mount_packages_with_auth(
         &server,
         "/basic-auth-heron",
-        &[mock_index::packages::iniconfig()],
+        &["iniconfig"],
         "public",
         "heron",
     )
@@ -10698,7 +10692,7 @@ async fn lock_multiple_indexes_same_realm_different_credentials() -> Result<()> 
     mock_index::mount_packages_with_auth(
         &server,
         "/basic-auth-eagle",
-        &mock_index::packages::anyio_all(),
+        mock_index::ANYIO_PACKAGES,
         "public",
         "eagle",
     )
@@ -10761,7 +10755,7 @@ async fn lock_multiple_indexes_same_realm_different_credentials_trailing_slash()
     mock_index::mount_packages_with_auth(
         &server,
         "/basic-auth-heron",
-        &[mock_index::packages::iniconfig()],
+        &["iniconfig"],
         "public",
         "heron",
     )
@@ -10769,7 +10763,7 @@ async fn lock_multiple_indexes_same_realm_different_credentials_trailing_slash()
     mock_index::mount_packages_with_auth(
         &server,
         "/basic-auth-eagle",
-        &mock_index::packages::anyio_all(),
+        mock_index::ANYIO_PACKAGES,
         "public",
         "eagle",
     )
@@ -10830,12 +10824,7 @@ async fn lock_relative_index() -> Result<()> {
     let server_uri = server.uri();
 
     // Mount unauthenticated index at /relative/simple with relative file URLs.
-    mock_index::mount_packages(
-        &server,
-        "/relative",
-        &[mock_index::packages::iniconfig_relative()],
-    )
-    .await;
+    mock_index::mount_packages_relative(&server, "/relative", &["iniconfig"]).await;
     // Relative URLs resolve to /files/packages/... on the same server.
     mock_index::mount_file_redirects(&server).await;
 
@@ -14630,7 +14619,7 @@ async fn lock_change_index() -> Result<()> {
 
     let context = uv_test::test_context!("3.12");
 
-    let server = mock_index::start_auth_index(&[mock_index::packages::iniconfig()])
+    let server = mock_index::start_auth_index(&["iniconfig"])
     .await;
     let server_uri = server.uri();
 
@@ -19187,11 +19176,7 @@ async fn lock_named_index() -> Result<()> {
     let server = MockServer::start().await;
     let server_uri = server.uri();
 
-    mock_index::mount_index(
-        &server,
-        &[mock_index::packages::typing_extensions()],
-    )
-    .await;
+    mock_index::mount_index(&server, &["typing-extensions"]).await;
 
     let filters = [(server_uri.as_str(), "http://[SERVER]")]
         .into_iter()
@@ -22252,7 +22237,7 @@ async fn lock_keyring_credentials() -> Result<()> {
 
     let context = uv_test::test_context!("3.12");
 
-    let server = mock_index::start_auth_index(&[mock_index::packages::iniconfig()])
+    let server = mock_index::start_auth_index(&["iniconfig"])
     .await;
     let server_uri = server.uri();
     let host = mock_index::host(&server);
@@ -22367,7 +22352,7 @@ async fn lock_keyring_explicit_always() -> Result<()> {
 
     let context = uv_test::test_context!("3.12");
 
-    let server = mock_index::start_auth_index(&[mock_index::packages::iniconfig()])
+    let server = mock_index::start_auth_index(&["iniconfig"])
     .await;
     let server_uri = server.uri();
     let host = mock_index::host(&server);
@@ -22470,7 +22455,7 @@ async fn lock_keyring_credentials_always_authenticate_fetches_username() -> Resu
 
     let context = uv_test::test_context!("3.12");
 
-    let server = mock_index::start_auth_index(&[mock_index::packages::iniconfig()])
+    let server = mock_index::start_auth_index(&["iniconfig"])
     .await;
     let server_uri = server.uri();
     let host = mock_index::host(&server);
@@ -22577,7 +22562,7 @@ async fn lock_keyring_credentials_always_authenticate_unsupported_mode() -> Resu
 
     let context = uv_test::test_context!("3.12");
 
-    let server = mock_index::start_auth_index(&[mock_index::packages::iniconfig()])
+    let server = mock_index::start_auth_index(&["iniconfig"])
     .await;
     let server_uri = server.uri();
     let host = mock_index::host(&server);
@@ -31749,7 +31734,7 @@ async fn lock_trailing_slash_index_url_in_pyproject_not_index_argument() -> Resu
     let server = MockServer::start().await;
     let server_uri = server.uri();
 
-    mock_index::mount_index(&server, &mock_index::packages::anyio_all()).await;
+    mock_index::mount_index(&server, mock_index::ANYIO_PACKAGES).await;
 
     let filters = [(server_uri.as_str(), "http://[SERVER]")]
         .into_iter()
@@ -31892,7 +31877,7 @@ async fn lock_trailing_slash_index_url_in_lockfile_not_pyproject() -> Result<()>
     let server = MockServer::start().await;
     let server_uri = server.uri();
 
-    mock_index::mount_index(&server, &mock_index::packages::anyio_all()).await;
+    mock_index::mount_index(&server, mock_index::ANYIO_PACKAGES).await;
 
     let pyproject_toml = context.temp_dir.child("pyproject.toml");
     pyproject_toml.write_str(&format!(
@@ -31988,7 +31973,7 @@ async fn lock_trailing_slash_index_url_in_pyproject_and_not_lockfile() -> Result
     let server = MockServer::start().await;
     let server_uri = server.uri();
 
-    mock_index::mount_index(&server, &mock_index::packages::anyio_all()).await;
+    mock_index::mount_index(&server, mock_index::ANYIO_PACKAGES).await;
 
     let pyproject_toml = context.temp_dir.child("pyproject.toml");
     pyproject_toml.write_str(&format!(
@@ -32084,7 +32069,7 @@ async fn lock_trailing_slash_index_url_in_lockfile_and_pyproject_toml() -> Resul
     let server = MockServer::start().await;
     let server_uri = server.uri();
 
-    mock_index::mount_index(&server, &mock_index::packages::anyio_all()).await;
+    mock_index::mount_index(&server, mock_index::ANYIO_PACKAGES).await;
 
     let pyproject_toml = context.temp_dir.child("pyproject.toml");
     pyproject_toml.write_str(&format!(

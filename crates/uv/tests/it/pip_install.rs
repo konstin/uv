@@ -316,7 +316,7 @@ async fn cache_uv_toml_credentials() -> Result<()> {
     use crate::mock_index;
 
     let context = uv_test::test_context!("3.12");
-    let server = mock_index::start_auth_index(&[mock_index::packages::iniconfig()])
+    let server = mock_index::start_auth_index(&["iniconfig"])
     .await;
     let server_uri = server.uri();
     let host = mock_index::host(&server);
@@ -5725,7 +5725,7 @@ async fn install_package_basic_auth_from_url() {
     use crate::mock_index;
 
     let context = uv_test::test_context!("3.12");
-    let server = mock_index::start_auth_index(&mock_index::packages::anyio_all()).await;
+    let server = mock_index::start_auth_index(mock_index::ANYIO_PACKAGES).await;
     let server_uri = server.uri();
     let host = mock_index::host(&server);
     let index_url = format!(
@@ -5769,7 +5769,7 @@ async fn install_package_basic_auth_from_netrc_default() -> Result<()> {
     use crate::mock_index;
 
     let context = uv_test::test_context!("3.12");
-    let server = mock_index::start_auth_index(&mock_index::packages::anyio_all()).await;
+    let server = mock_index::start_auth_index(mock_index::ANYIO_PACKAGES).await;
     let server_uri = server.uri();
     let index_url = format!("{server_uri}/simple");
 
@@ -5817,7 +5817,7 @@ async fn install_package_basic_auth_from_netrc() -> Result<()> {
     use crate::mock_index;
 
     let context = uv_test::test_context!("3.12");
-    let server = mock_index::start_auth_index(&mock_index::packages::anyio_all()).await;
+    let server = mock_index::start_auth_index(mock_index::ANYIO_PACKAGES).await;
     let server_uri = server.uri();
     let index_url = format!("{server_uri}/simple");
     // netrc matches by hostname only (no port), so extract just the host part
@@ -5869,7 +5869,7 @@ async fn install_package_basic_auth_from_netrc_index_in_requirements() -> Result
     use crate::mock_index;
 
     let context = uv_test::test_context!("3.12");
-    let server = mock_index::start_auth_index(&mock_index::packages::anyio_all()).await;
+    let server = mock_index::start_auth_index(mock_index::ANYIO_PACKAGES).await;
     let server_uri = server.uri();
     let index_url = format!("{server_uri}/simple");
     // netrc matches by hostname only (no port), so extract just the host part
@@ -5928,7 +5928,7 @@ async fn install_index_with_relative_links() {
 
     // Mount packages with absolute URLs (relative link testing is about the
     // Simple API serving relative hrefs, but the JSON API always uses absolute URLs)
-    mock_index::mount_index(&server, &mock_index::packages::anyio_all()).await;
+    mock_index::mount_index(&server, mock_index::ANYIO_PACKAGES).await;
 
     let server_uri = server.uri();
     let index_url = format!("{server_uri}/simple");
@@ -5966,7 +5966,7 @@ async fn install_package_basic_auth_from_keyring() {
     use crate::mock_index;
 
     let context = uv_test::test_context!("3.12");
-    let server = mock_index::start_auth_index(&mock_index::packages::anyio_all()).await;
+    let server = mock_index::start_auth_index(mock_index::ANYIO_PACKAGES).await;
     let server_uri = server.uri();
     let host = mock_index::host(&server);
     let index_url = format!("http://{}@{}/simple", mock_index::USERNAME, host);
@@ -6028,7 +6028,7 @@ async fn install_package_basic_auth_from_keyring_wrong_password() {
     use crate::mock_index;
 
     let context = uv_test::test_context!("3.12");
-    let server = mock_index::start_auth_index(&mock_index::packages::anyio_all()).await;
+    let server = mock_index::start_auth_index(mock_index::ANYIO_PACKAGES).await;
     let server_uri = server.uri();
     let host = mock_index::host(&server);
     let index_url = format!("http://{}@{}/simple", mock_index::USERNAME, host);
@@ -6086,7 +6086,7 @@ async fn install_package_basic_auth_from_keyring_wrong_username() {
     use crate::mock_index;
 
     let context = uv_test::test_context!("3.12");
-    let server = mock_index::start_auth_index(&mock_index::packages::anyio_all()).await;
+    let server = mock_index::start_auth_index(mock_index::ANYIO_PACKAGES).await;
     let server_uri = server.uri();
     let host = mock_index::host(&server);
     let index_url = format!("http://{}@{}/simple", mock_index::USERNAME, host);
@@ -6144,7 +6144,7 @@ async fn install_index_with_relative_links_authenticated() {
     use crate::mock_index;
 
     let context = uv_test::test_context!("3.12");
-    let server = mock_index::start_auth_index(&mock_index::packages::anyio_all()).await;
+    let server = mock_index::start_auth_index(mock_index::ANYIO_PACKAGES).await;
     let server_uri = server.uri();
     let host = mock_index::host(&server);
     let index_url = format!(

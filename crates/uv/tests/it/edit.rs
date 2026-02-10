@@ -10605,7 +10605,7 @@ async fn add_index_credentials() -> Result<()> {
 
     let context = uv_test::test_context!("3.12");
 
-    let server = mock_index::start_auth_index(&[mock_index::packages::iniconfig()])
+    let server = mock_index::start_auth_index(&["iniconfig"])
     .await;
     let host = mock_index::host(&server);
     let default_index =
@@ -10705,7 +10705,7 @@ async fn existing_index_credentials() -> Result<()> {
 
     let context = uv_test::test_context!("3.12");
 
-    let server = mock_index::start_auth_index(&[mock_index::packages::iniconfig()])
+    let server = mock_index::start_auth_index(&["iniconfig"])
     .await;
     let server_uri = server.uri();
     let host = mock_index::host(&server);
@@ -13051,7 +13051,7 @@ async fn add_index_url_in_keyring() -> Result<()> {
 
     let context = uv_test::test_context!("3.12");
 
-    let server = mock_index::start_auth_index(&mock_index::packages::anyio_all()).await;
+    let server = mock_index::start_auth_index(mock_index::ANYIO_PACKAGES).await;
     let server_uri = server.uri();
     let host = mock_index::host(&server);
 
@@ -13480,7 +13480,7 @@ async fn add_auth_policy_always_with_credentials() -> Result<()> {
 
     let context = uv_test::test_context!("3.12");
 
-    let server = mock_index::start_auth_index(&mock_index::packages::anyio_all()).await;
+    let server = mock_index::start_auth_index(mock_index::ANYIO_PACKAGES).await;
     let server_uri = server.uri();
 
     let pyproject_toml = context.temp_dir.child("pyproject.toml");
@@ -13614,13 +13614,12 @@ async fn add_auth_policy_never_with_url_credentials() -> Result<()> {
     // The "never" policy prevents forwarding auth to file download URLs,
     // so they will hit the 401 catch-all.
     let server = MockServer::start().await;
-    let server_uri = server.uri();
     let host = mock_index::host(&server);
 
-    mock_index::mount_packages_with_auth(
+    mock_index::mount_packages_local_with_auth(
         &server,
         "",
-        &[mock_index::packages::anyio_local(&server_uri)],
+        &["anyio"],
         mock_index::USERNAME,
         mock_index::PASSWORD,
     )
@@ -13657,8 +13656,8 @@ async fn add_auth_policy_never_with_url_credentials() -> Result<()> {
     ----- stdout -----
 
     ----- stderr -----
-    error: Failed to fetch: `http://[SERVER]/files/packages/14/fd/2f20c40b45e4fb4324834aea24bd4afdf1143390242c0b33774da0e2e34f/anyio-4.3.0-py3-none-any.whl`
-      Caused by: HTTP status client error (401 Unauthorized) for url (http://[SERVER]/files/packages/14/fd/2f20c40b45e4fb4324834aea24bd4afdf1143390242c0b33774da0e2e34f/anyio-4.3.0-py3-none-any.whl)
+    error: Failed to fetch: `http://[SERVER]/files/packages/14/fd/2f20c40b45e4fb4324834aea24bd4afdf1143390242c0b33774da0e2e34f/anyio-4.3.0-py3-none-any.whl.metadata`
+      Caused by: HTTP status client error (401 Unauthorized) for url (http://[SERVER]/files/packages/14/fd/2f20c40b45e4fb4324834aea24bd4afdf1143390242c0b33774da0e2e34f/anyio-4.3.0-py3-none-any.whl.metadata)
     "
     );
 
@@ -13843,7 +13842,7 @@ async fn add_redirect_cross_origin_credentials_in_location() -> Result<()> {
     })?;
 
     // Target server: auth-protected index serving anyio + deps
-    let target_server = mock_index::start_auth_index(&mock_index::packages::anyio_all()).await;
+    let target_server = mock_index::start_auth_index(mock_index::ANYIO_PACKAGES).await;
     let target_base = format!(
         "http://{}:{}@{}/simple/",
         mock_index::USERNAME,
@@ -13984,7 +13983,7 @@ async fn pip_install_redirect_with_netrc_cross_origin() -> Result<()> {
         .collect::<Vec<_>>();
 
     // Target server: auth-protected index serving anyio + deps
-    let target_server = mock_index::start_auth_index(&mock_index::packages::anyio_all()).await;
+    let target_server = mock_index::start_auth_index(mock_index::ANYIO_PACKAGES).await;
     let target_base = format!("{}/simple/", target_server.uri());
 
     // netrc uses hostname only (no port) for machine matching

@@ -17836,8 +17836,7 @@ async fn credentials_from_subdirectory() -> Result<()> {
     use crate::mock_index;
 
     let context = uv_test::test_context!("3.12");
-    let server = mock_index::start_auth_index(&[mock_index::packages::iniconfig()])
-    .await;
+    let server = mock_index::start_auth_index(&["iniconfig"]).await;
     let server_uri = server.uri();
 
     // Create a local dependency in a subdirectory.

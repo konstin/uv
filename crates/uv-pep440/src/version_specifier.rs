@@ -2051,4 +2051,32 @@ Failed to parse version: Unexpected end of version specifier, expected operator.
             "The ~= operator requires at least two segments in the release version"
         );
     }
+
+    /// Test that `bounding_specifiers` panics with overflow when the second-to-last
+    /// release segment is `u64::MAX` and `has_patch()` is true (3 segments).
+    ///
+    /// A user can trigger this with `requires-python = "~=3.18446744073709551615.0"`.
+    ///
+    /// See: `TildeVersionSpecifier::bounding_specifiers()` which computes `release[1] + 1`.
+    #[test]
+    #[should_panic(expected = "attempt to add with overflow")]
+    fn bounding_specifiers_overflow_with_patch() {
+        let specifier = VersionSpecifier::from_str("~=3.18446744073709551615.0").unwrap();
+        let tilde = TildeVersionSpecifier::from_specifier(specifier).unwrap();
+        let (_lower, _upper) = tilde.bounding_specifiers();
+    }
+
+    /// Test that `bounding_specifiers` panics with overflow when the first
+    /// release segment is `u64::MAX` and `has_patch()` is false (2 segments).
+    ///
+    /// A user can trigger this with `requires-python = "~=18446744073709551615.0"`.
+    ///
+    /// See: `TildeVersionSpecifier::bounding_specifiers()` which computes `release[0] + 1`.
+    #[test]
+    #[should_panic(expected = "attempt to add with overflow")]
+    fn bounding_specifiers_overflow_no_patch() {
+        let specifier = VersionSpecifier::from_str("~=18446744073709551615.0").unwrap();
+        let tilde = TildeVersionSpecifier::from_specifier(specifier).unwrap();
+        let (_lower, _upper) = tilde.bounding_specifiers();
+    }
 }

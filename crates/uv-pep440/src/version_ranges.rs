@@ -622,72 +622,35 @@ mod tests {
         assert!(!range.contains(&v), "should exclude 0.12.0.post1");
     }
 
-    /// Test that `~=X.Y.Z` with Y at `u64::MAX` causes an overflow when computing
-    /// the upper bound `X.(Y+1)`.
-    ///
-    /// A user can trigger this by writing `requires-python = "~=3.18446744073709551615.0"`
-    /// in their `pyproject.toml` or similar version specifiers in dependencies.
-    ///
-    /// See: `version_ranges.rs` TildeEqual branch which computes `last + 1`.
+    /// Version specifiers with `u64::MAX` segments are rejected at parse time
+    /// to prevent arithmetic overflow in downstream code that computes `segment + 1`
+    /// (e.g., `~=` upper bound, `==*` upper bound, `>` with post/dev releases).
     #[test]
-    #[should_panic(expected = "attempt to add with overflow")]
-    fn tilde_equal_u64_max_overflow() {
-        let specifier: VersionSpecifier = "~=18446744073709551615.0".parse().unwrap();
-        let _range = Ranges::<Version>::from(specifier);
-    }
+    fn u64_max_version_segments_rejected_at_parse_time() {
+        // All of these previously caused panics due to overflow in version range
+        // computation. Now they are rejected during version parsing.
+        assert!("~=18446744073709551615.0"
+            .parse::<VersionSpecifier>()
+            .is_err());
+        assert!("==18446744073709551615.*"
+            .parse::<VersionSpecifier>()
+            .is_err());
+        assert!("!=18446744073709551615.*"
+            .parse::<VersionSpecifier>()
+            .is_err());
+        assert!(">1.0.dev18446744073709551615"
+            .parse::<VersionSpecifier>()
+            .is_err());
+        assert!(">1.0.post18446744073709551615"
+            .parse::<VersionSpecifier>()
+            .is_err());
 
-    /// Same overflow but through the `release_specifier_to_range` path used for
-    /// `requires-python` processing.
-    #[test]
-    #[should_panic(expected = "attempt to add with overflow")]
-    fn tilde_equal_u64_max_overflow_release_semantics() {
-        let specifier: VersionSpecifier = "~=18446744073709551615.0".parse().unwrap();
-        let _range = release_specifier_to_range(specifier, false);
+        // u64::MAX - 1 is still accepted.
+        assert!("~=18446744073709551614.0"
+            .parse::<VersionSpecifier>()
+            .is_ok());
+        assert!("==18446744073709551614.*"
+            .parse::<VersionSpecifier>()
+            .is_ok());
     }
-
-    /// Test that `==X.*` with X at `u64::MAX` causes an overflow when computing
-    /// the upper bound `(X+1)`.
-    ///
-    /// A user can trigger this with `dependencies = ["foo==18446744073709551615.*"]`.
-    ///
-    /// See: `version_ranges.rs` EqualStar branch which computes `*last += 1`.
-    #[test]
-    #[should_panic(expected = "attempt to add with overflow")]
-    fn equal_star_u64_max_overflow() {
-        let specifier: VersionSpecifier = "==18446744073709551615.*".parse().unwrap();
-        let _range = Ranges::<Version>::from(specifier);
-    }
-
-    /// Test that `!=X.*` with X at `u64::MAX` causes an overflow when computing
-    /// the upper bound `(X+1)`.
-    #[test]
-    #[should_panic(expected = "attempt to add with overflow")]
-    fn not_equal_star_u64_max_overflow() {
-        let specifier: VersionSpecifier = "!=18446744073709551615.*".parse().unwrap();
-        let _range = Ranges::<Version>::from(specifier);
-    }
-
-    /// Test that `>X.dev<MAX>` causes an overflow when computing `dev + 1`.
-    ///
-    /// A user can trigger this with `dependencies = ["foo>1.0.dev18446744073709551615"]`.
-    #[test]
-    #[should_panic(expected = "attempt to add with overflow")]
-    fn greater_than_dev_u64_max_overflow() {
-        let specifier: VersionSpecifier = ">1.0.dev18446744073709551615".parse().unwrap();
-        let _range = Ranges::<Version>::from(specifier);
-    }
-
-    /// Test that `>X.postMAX` causes an overflow when computing `post + 1`.
-    ///
-    /// A user can trigger this with `dependencies = ["foo>1.0.post18446744073709551615"]`.
-    #[test]
-    #[should_panic(expected = "attempt to add with overflow")]
-    fn greater_than_post_u64_max_overflow() {
-        let specifier: VersionSpecifier = ">1.0.post18446744073709551615".parse().unwrap();
-        let _range = Ranges::<Version>::from(specifier);
-    }
-
-    // Note: `==1.0.post<MAX>.*` and `==1.0a<MAX>.*` are not valid PEP 440
-    // specifiers, so the `EqualStar` post/pre-release overflow paths (lines 104-110)
-    // are not reachable through user-provided strings.
 }

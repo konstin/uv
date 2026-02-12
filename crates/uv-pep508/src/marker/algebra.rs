@@ -1815,20 +1815,29 @@ mod tests {
         assert_eq!(m().or(a, b), windows);
     }
 
-    /// `python_version > '3.18446744073709551615'` causes an overflow when
-    /// `python_version_to_full_version` computes `minor + 1` to convert the
-    /// `>` comparison to a `>=` comparison on `python_full_version`.
+    /// `python_version > '3.18446744073709551615'` previously caused an overflow
+    /// when `python_version_to_full_version` computed `minor + 1`.
     ///
-    /// A user can trigger this by adding a dependency with such a marker in
-    /// `pyproject.toml` or `requirements.txt`.
-    ///
-    /// The same overflow also applies to `python_version <= '3.<MAX>'` (line 1633),
-    /// and to `python_version {<,<=,>,>=} '3.<MAX>.Z'` with 3+ segments (lines 1658, 1663).
-    /// These cannot be tested separately due to shared global INTERNER state
-    /// (the panic poisons the mutex for subsequent tests).
+    /// Now, `u64::MAX` is rejected at version parse time, so the marker expression
+    /// is ignored (returns `Ok(None)`) rather than overflowing.
     #[test]
-    #[should_panic(expected = "attempt to add with overflow")]
-    fn python_version_marker_u64_max_minor_overflow() {
-        expr("python_version > '3.18446744073709551615'");
+    fn python_version_marker_u64_max_rejected_at_parse_time() {
+        // u64::MAX in a version segment causes a parse error, which the marker
+        // parser treats as a warning and ignores (returns Ok(None)).
+        assert_eq!(
+            MarkerExpression::from_str("python_version > '3.18446744073709551615'").unwrap(),
+            None,
+        );
+        assert_eq!(
+            MarkerExpression::from_str("python_version <= '3.18446744073709551615'").unwrap(),
+            None,
+        );
+
+        // u64::MAX - 1 is accepted and returns a real expression.
+        assert!(
+            MarkerExpression::from_str("python_version > '3.18446744073709551614'")
+                .unwrap()
+                .is_some()
+        );
     }
 }

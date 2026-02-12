@@ -2266,7 +2266,19 @@ impl<'a> Parser<'a> {
         if digits.is_empty() {
             return Ok(None);
         }
-        Ok(Some(parse_u64(digits)?))
+        let n = parse_u64(digits)?;
+        // Reject `u64::MAX` to prevent arithmetic overflow in downstream code
+        // that computes `segment + 1` (e.g., `~=` upper bound, `==*` upper
+        // bound, `python_version` marker algebra). This only applies to version
+        // segments (release, epoch, pre/post/dev), not local version segments
+        // which don't undergo arithmetic.
+        if n == u64::MAX {
+            return Err(ErrorKind::NumberTooBig {
+                bytes: digits.to_vec(),
+            }
+            .into());
+        }
+        Ok(Some(n))
     }
 
     /// Turns whatever state has been gathered into a `VersionPattern`.
@@ -2581,7 +2593,7 @@ impl std::fmt::Display for VersionParseError {
                     f,
                     "expected number less than or equal to {}, \
                      but number found in {string:?} exceeds it",
-                    u64::MAX,
+                    u64::MAX - 1,
                 )
             }
             ErrorKind::NoLeadingNumber => {
@@ -4172,6 +4184,9 @@ mod tests {
         assert_eq!(p("01"), Ok(1));
         assert_eq!(p("9"), Ok(9));
         assert_eq!(p("10"), Ok(10));
+        // parse_u64 accepts u64::MAX (it's parse_number that rejects it for
+        // version segments).
+        assert_eq!(p("18446744073709551614"), Ok(18_446_744_073_709_551_614));
         assert_eq!(p("18446744073709551615"), Ok(18_446_744_073_709_551_615));
         assert_eq!(p("018446744073709551615"), Ok(18_446_744_073_709_551_615));
         assert_eq!(
@@ -4182,6 +4197,8 @@ mod tests {
         assert_eq!(p("10a"), Err(ErrorKind::InvalidDigit { got: b'a' }.into()));
         assert_eq!(p("10["), Err(ErrorKind::InvalidDigit { got: b'[' }.into()));
         assert_eq!(p("10/"), Err(ErrorKind::InvalidDigit { got: b'/' }.into()));
+
+        // u64::MAX + 1 is rejected (overflow during parsing).
         assert_eq!(
             p("18446744073709551616"),
             Err(ErrorKind::NumberTooBig {

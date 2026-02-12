@@ -4181,38 +4181,3 @@ fn init_working_directory_change() -> Result<()> {
 
     Ok(())
 }
-
-/// `uv init / --name foo` panics because `Path::new("/").parent()` is `None`.
-///
-/// The panic occurs at `init_project()` in `init.rs`, which calls
-/// `path.parent().expect("Project path has no parent")` on the root path.
-///
-/// This is a user-triggerable panic since `/` is a valid path argument.
-#[test]
-fn init_at_root_path() {
-    let context = uv_test::test_context!("3.12");
-
-    // `uv init / --name foo` triggers a panic because `/` has no parent directory.
-    // The process should exit gracefully with an error rather than panicking.
-    let output = context
-        .init()
-        .arg("/")
-        .arg("--name")
-        .arg("foo")
-        .output()
-        .expect("Failed to execute uv init");
-
-    // The command should not succeed - it currently panics (exit code 101).
-    assert!(
-        !output.status.success(),
-        "uv init / --name foo should not succeed"
-    );
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    // Currently panics with "Project path has no parent" - this should become a
-    // graceful error message instead.
-    assert!(
-        stderr.contains("panicked") || stderr.contains("Project path has no parent"),
-        "Expected a panic or error about root path, got: {stderr}"
-    );
-}

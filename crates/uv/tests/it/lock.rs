@@ -33372,14 +33372,10 @@ fn lock_check_multiple_default_indexes_explicit_assignment_dependency_group() ->
 }
 
 /// A dependency with `~=18446744073709551615.0` (where u64::MAX is the second-to-last
-/// release segment) causes an arithmetic overflow when computing the upper version bound.
-///
-/// The overflow occurs in `version_ranges.rs` TildeEqual branch which computes `last + 1`.
-/// In debug builds this panics; in release builds it wraps to 0 silently.
-///
-/// This is user-triggerable: a pyproject.toml with such a dependency causes uv to crash.
+/// release segment) is rejected at parse time to prevent arithmetic overflow when
+/// computing the upper version bound.
 #[test]
-fn lock_tilde_equal_version_overflow() -> Result<()> {
+fn lock_tilde_equal_version_u64_max_rejected() -> Result<()> {
     let context = uv_test::test_context!("3.12");
 
     let pyproject_toml = context.temp_dir.child("pyproject.toml");
@@ -33391,34 +33387,27 @@ fn lock_tilde_equal_version_overflow() -> Result<()> {
         dependencies = ["bar~=18446744073709551615.0"]
     "#})?;
 
-    // The overflow occurs when converting the ~= specifier to a version range.
-    // The process should exit with a graceful error instead of panicking.
-    let output = context
-        .lock()
-        .output()
-        .expect("Failed to execute uv lock");
+    uv_snapshot!(context.filters(), context.lock(), @r#"
+    success: false
+    exit_code: 1
+    ----- stdout -----
 
-    assert!(
-        !output.status.success(),
-        "uv lock should not succeed with an overflowing version specifier"
-    );
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("panicked") || stderr.contains("overflow"),
-        "Expected a panic or overflow error, got: {stderr}"
-    );
+    ----- stderr -----
+      × Failed to build `foo @ file://[TEMP_DIR]/`
+      ├─▶ Failed to parse metadata from built wheel
+      ╰─▶ expected number less than or equal to 18446744073709551614, but number found in "18446744073709551615" exceeds it
+          bar ~=18446744073709551615.0
+              ^^^^^^^^^^^^^^^^^^^^^^^^
+    "#);
 
     Ok(())
 }
 
 /// A dependency with `==18446744073709551615.*` (where u64::MAX is the last
-/// release segment) causes an arithmetic overflow when computing the upper bound.
-///
-/// The overflow occurs in `version_ranges.rs` EqualStar branch which computes
-/// `*release.last_mut().unwrap() += 1`.
+/// release segment) is rejected at parse time to prevent arithmetic overflow
+/// when computing the upper bound.
 #[test]
-fn lock_equal_star_version_overflow() -> Result<()> {
+fn lock_equal_star_version_u64_max_rejected() -> Result<()> {
     let context = uv_test::test_context!("3.12");
 
     let pyproject_toml = context.temp_dir.child("pyproject.toml");
@@ -33430,33 +33419,28 @@ fn lock_equal_star_version_overflow() -> Result<()> {
         dependencies = ["bar==18446744073709551615.*"]
     "#})?;
 
-    let output = context
-        .lock()
-        .output()
-        .expect("Failed to execute uv lock");
+    uv_snapshot!(context.filters(), context.lock(), @r#"
+    success: false
+    exit_code: 1
+    ----- stdout -----
 
-    assert!(
-        !output.status.success(),
-        "uv lock should not succeed with an overflowing version specifier"
-    );
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("panicked") || stderr.contains("overflow"),
-        "Expected a panic or overflow error, got: {stderr}"
-    );
+    ----- stderr -----
+      × Failed to build `foo @ file://[TEMP_DIR]/`
+      ├─▶ Failed to parse metadata from built wheel
+      ╰─▶ expected number less than or equal to 18446744073709551614, but number found in "18446744073709551615" exceeds it
+          bar ==18446744073709551615.*
+              ^^^^^^^^^^^^^^^^^^^^^^^^
+    "#);
 
     Ok(())
 }
 
 /// A dependency with a `python_version` marker containing `u64::MAX` as the minor
-/// version causes an overflow in the marker algebra when converting `python_version`
-/// comparisons to `python_full_version` equivalents.
-///
-/// The overflow occurs in `marker/algebra.rs` `python_version_to_full_version`
-/// which computes `minor + 1`.
+/// version is rejected at parse time to prevent overflow in the marker algebra.
+/// The marker parser treats unparseable versions as warnings and ignores them,
+/// so the dependency `bar` becomes unconditional and fails to resolve.
 #[test]
-fn lock_marker_python_version_overflow() -> Result<()> {
+fn lock_marker_python_version_u64_max_rejected() -> Result<()> {
     let context = uv_test::test_context!("3.12");
 
     let pyproject_toml = context.temp_dir.child("pyproject.toml");
@@ -33470,21 +33454,16 @@ fn lock_marker_python_version_overflow() -> Result<()> {
         ]
     "#})?;
 
-    let output = context
-        .lock()
-        .output()
-        .expect("Failed to execute uv lock");
+    // The marker version fails to parse, so the marker is ignored with a warning.
+    // The dependency `bar` is treated as unconditional and fails to resolve.
+    uv_snapshot!(context.filters(), context.lock(), @"
+    success: true
+    exit_code: 0
+    ----- stdout -----
 
-    assert!(
-        !output.status.success(),
-        "uv lock should not succeed with an overflowing marker version"
-    );
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("panicked") || stderr.contains("overflow"),
-        "Expected a panic or overflow error, got: {stderr}"
-    );
+    ----- stderr -----
+    Resolved 2 packages in [TIME]
+    ");
 
     Ok(())
 }

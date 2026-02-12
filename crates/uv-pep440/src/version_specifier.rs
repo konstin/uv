@@ -2052,30 +2052,17 @@ Failed to parse version: Unexpected end of version specifier, expected operator.
         );
     }
 
-    /// Test that `bounding_specifiers` panics with overflow when the second-to-last
-    /// release segment is `u64::MAX` and `has_patch()` is true (3 segments).
-    ///
-    /// A user can trigger this with `requires-python = "~=3.18446744073709551615.0"`.
-    ///
-    /// See: `TildeVersionSpecifier::bounding_specifiers()` which computes `release[1] + 1`.
+    /// Version specifiers with `u64::MAX` segments are rejected at parse time,
+    /// preventing overflow in `bounding_specifiers()` which computes `release[n] + 1`.
     #[test]
-    #[should_panic(expected = "attempt to add with overflow")]
-    fn bounding_specifiers_overflow_with_patch() {
-        let specifier = VersionSpecifier::from_str("~=3.18446744073709551615.0").unwrap();
-        let tilde = TildeVersionSpecifier::from_specifier(specifier).unwrap();
-        let (_lower, _upper) = tilde.bounding_specifiers();
-    }
+    fn bounding_specifiers_u64_max_rejected_at_parse_time() {
+        // These previously caused overflow panics in bounding_specifiers().
+        // Now they are rejected during version parsing.
+        assert!(VersionSpecifier::from_str("~=3.18446744073709551615.0").is_err());
+        assert!(VersionSpecifier::from_str("~=18446744073709551615.0").is_err());
 
-    /// Test that `bounding_specifiers` panics with overflow when the first
-    /// release segment is `u64::MAX` and `has_patch()` is false (2 segments).
-    ///
-    /// A user can trigger this with `requires-python = "~=18446744073709551615.0"`.
-    ///
-    /// See: `TildeVersionSpecifier::bounding_specifiers()` which computes `release[0] + 1`.
-    #[test]
-    #[should_panic(expected = "attempt to add with overflow")]
-    fn bounding_specifiers_overflow_no_patch() {
-        let specifier = VersionSpecifier::from_str("~=18446744073709551615.0").unwrap();
+        // u64::MAX - 1 is accepted and bounding_specifiers works without overflow.
+        let specifier = VersionSpecifier::from_str("~=3.18446744073709551614.0").unwrap();
         let tilde = TildeVersionSpecifier::from_specifier(specifier).unwrap();
         let (_lower, _upper) = tilde.bounding_specifiers();
     }

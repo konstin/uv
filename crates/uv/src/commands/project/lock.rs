@@ -880,15 +880,35 @@ async fn do_lock(
                     }),
             );
 
+            // When `--no-sources` is active, exclude workspace members that are depended
+            // on by other members (via `tool.uv.sources` with `{ workspace = true }`).
+            // These members should be resolved from indexes rather than as local directory
+            // requirements, matching the behavior of `uv pip compile --no-sources`.
+            let members_requirements: Vec<_> = target
+                .members_requirements()
+                .filter(|req| {
+                    // If sources are disabled for this package and it's a required member
+                    // (depended on by another workspace member via workspace sources),
+                    // exclude it from directory root requirements.
+                    !(sources.for_package(&req.name) && required_members.contains_key(&req.name))
+                })
+                .collect();
+            let group_requirements: Vec<_> = target
+                .group_requirements()
+                .filter(|req| {
+                    !(sources.for_package(&req.name) && required_members.contains_key(&req.name))
+                })
+                .collect();
+
             // Resolve the requirements.
             let resolution = pip::operations::resolve(
                 ExtrasResolver::new(&hasher, state.index(), database)
                     .with_reporter(Arc::new(ResolverReporter::from(printer)))
-                    .resolve(target.members_requirements())
+                    .resolve(members_requirements.into_iter())
                     .await
                     .map_err(|err| ProjectError::Operation(err.into()))?
                     .into_iter()
-                    .chain(target.group_requirements())
+                    .chain(group_requirements)
                     .chain(requirements.iter().cloned())
                     .chain(
                         dependency_groups

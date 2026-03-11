@@ -10958,6 +10958,169 @@ fn lock_no_sources() -> Result<()> {
     Ok(())
 }
 
+/// `--no-sources` should resolve workspace member dependencies from the index
+/// rather than using local workspace paths, matching `uv pip compile --no-sources`.
+///
+/// See: <https://github.com/astral-sh/uv/issues/18258>
+#[test]
+fn lock_no_sources_workspace() -> Result<()> {
+    let context = uv_test::test_context!("3.12");
+
+    let pyproject_toml = context.temp_dir.child("pyproject.toml");
+    pyproject_toml.write_str(
+        r#"
+        [project]
+        name = "project"
+        version = "0.1.0"
+        requires-python = ">=3.12"
+        dependencies = ["iniconfig>=2"]
+
+        [tool.uv.workspace]
+        members = ["packages/iniconfig"]
+
+        [tool.uv.sources]
+        iniconfig = { workspace = true }
+
+        [build-system]
+        requires = ["setuptools>=42"]
+        build-backend = "setuptools.build_meta"
+        "#,
+    )?;
+
+    // Create the workspace member with a different version than what's on PyPI.
+    let member_dir = context.temp_dir.child("packages").child("iniconfig");
+    member_dir.create_dir_all()?;
+
+    let member_pyproject = member_dir.child("pyproject.toml");
+    member_pyproject.write_str(
+        r#"
+        [project]
+        name = "iniconfig"
+        version = "0.0.1"
+        requires-python = ">=3.12"
+
+        [build-system]
+        requires = ["setuptools>=42"]
+        build-backend = "setuptools.build_meta"
+        "#,
+    )?;
+
+    // Lock with sources enabled should use the workspace member.
+    uv_snapshot!(context.filters(), context.lock(), @"
+    success: true
+    exit_code: 0
+    ----- stdout -----
+
+    ----- stderr -----
+    Resolved 2 packages in [TIME]
+    ");
+
+    let lock = context.read("uv.lock");
+
+    insta::with_settings!({
+        filters => context.filters(),
+    }, {
+        assert_snapshot!(
+            lock, @r#"
+        version = 1
+        revision = 3
+        requires-python = ">=3.12"
+
+        [options]
+        exclude-newer = "2024-03-25T00:00:00Z"
+
+        [manifest]
+        members = [
+            "iniconfig",
+            "project",
+        ]
+
+        [[package]]
+        name = "iniconfig"
+        version = "0.0.1"
+        source = { editable = "packages/iniconfig" }
+
+        [[package]]
+        name = "project"
+        version = "0.1.0"
+        source = { editable = "." }
+        dependencies = [
+            { name = "iniconfig" },
+        ]
+
+        [package.metadata]
+        requires-dist = [{ name = "iniconfig", editable = "packages/iniconfig" }]
+        "#
+        );
+    });
+
+    // Lock with `--no-sources` should resolve iniconfig from the registry.
+    uv_snapshot!(context.filters(), context.lock().arg("--no-sources"), @"
+    success: true
+    exit_code: 0
+    ----- stdout -----
+
+    ----- stderr -----
+    Resolved 2 packages in [TIME]
+    Updated iniconfig v0.0.1 -> v2.0.0
+    ");
+
+    let lock = context.read("uv.lock");
+
+    insta::with_settings!({
+        filters => context.filters(),
+    }, {
+        assert_snapshot!(
+            lock, @r#"
+        version = 1
+        revision = 3
+        requires-python = ">=3.12"
+
+        [options]
+        exclude-newer = "2024-03-25T00:00:00Z"
+
+        [manifest]
+        members = [
+            "iniconfig",
+            "project",
+        ]
+
+        [[package]]
+        name = "iniconfig"
+        version = "2.0.0"
+        source = { registry = "https://pypi.org/simple" }
+        sdist = { url = "https://files.pythonhosted.org/packages/d7/4b/cbd8e699e64a6f16ca3a8220661b5f83792b3017d0f79807cb8708d33913/iniconfig-2.0.0.tar.gz", hash = "sha256:2d91e135bf72d31a410b17c16da610a82cb55f6b0477d1a902134b24a455b8b3", size = 4646, upload-time = "2023-01-07T11:08:11.254Z" }
+        wheels = [
+            { url = "https://files.pythonhosted.org/packages/ef/a6/62565a6e1cf69e10f5727360368e451d4b7f58beeac6173dc9db836a5b46/iniconfig-2.0.0-py3-none-any.whl", hash = "sha256:b6a85871a79d2e3b22d2d1b94ac2824226a63c6b741c88f7ae975f18b6778374", size = 5892, upload-time = "2023-01-07T11:08:09.864Z" },
+        ]
+
+        [[package]]
+        name = "project"
+        version = "0.1.0"
+        source = { editable = "." }
+        dependencies = [
+            { name = "iniconfig" },
+        ]
+
+        [package.metadata]
+        requires-dist = [{ name = "iniconfig", specifier = ">=2" }]
+        "#
+        );
+    });
+
+    // Re-run with `--locked`.
+    uv_snapshot!(context.filters(), context.lock().arg("--no-sources").arg("--locked"), @"
+    success: true
+    exit_code: 0
+    ----- stdout -----
+
+    ----- stderr -----
+    Resolved 2 packages in [TIME]
+    ");
+
+    Ok(())
+}
+
 /// Lock a project that has an existing lockfile with a deprecated schema.
 #[test]
 fn lock_migrate() -> Result<()> {

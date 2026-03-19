@@ -1834,6 +1834,62 @@ mod tests {
         ");
     }
 
+    /// Test that nested `pyproject.toml` files (e.g., in subdirectories included via
+    /// `source-include`) are preserved in the sdist and not accidentally skipped by the
+    /// root-level TOML 1.0 rewriting logic.
+    #[test]
+    fn nested_pyproject_toml_preserved() {
+        let src = TempDir::new().unwrap();
+
+        fs_err::write(
+            src.path().join("pyproject.toml"),
+            indoc! {r#"
+                [project]
+                name = "nested-pyproject"
+                version = "1.0.0"
+
+                [build-system]
+                requires = ["uv_build>=0.5.15,<0.6.0"]
+                build-backend = "uv_build"
+
+                [tool.uv.build-backend]
+                source-include = ["subproject/**"]
+            "#},
+        )
+        .unwrap();
+
+        fs_err::create_dir_all(src.path().join("src").join("nested_pyproject")).unwrap();
+        File::create(
+            src.path()
+                .join("src")
+                .join("nested_pyproject")
+                .join("__init__.py"),
+        )
+        .unwrap();
+
+        // Create a nested pyproject.toml in a subdirectory
+        fs_err::create_dir_all(src.path().join("subproject")).unwrap();
+        fs_err::write(
+            src.path().join("subproject").join("pyproject.toml"),
+            "[project]\nname = \"subproject\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+
+        let dist = TempDir::new().unwrap();
+        let source_dist_filename =
+            build_source_dist(src.path(), dist.path(), MOCK_UV_VERSION, false).unwrap();
+        let source_dist_path = dist.path().join(source_dist_filename.to_string());
+        let contents = sdist_contents(&source_dist_path);
+
+        // The nested pyproject.toml should be present
+        assert!(
+            contents
+                .iter()
+                .any(|f| f.contains("subproject/pyproject.toml")),
+            "Nested pyproject.toml should be in sdist, got: {contents:?}"
+        );
+    }
+
     /// Test that TOML 1.1 features in pyproject.toml are rewritten to TOML 1.0 for backward
     /// compatibility with older tools. The original file is preserved as pyproject.toml.orig.
     #[test]

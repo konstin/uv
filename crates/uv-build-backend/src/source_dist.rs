@@ -8,7 +8,6 @@ use flate2::Compression;
 use flate2::write::GzEncoder;
 use fs_err::File;
 use globset::{Glob, GlobSet};
-use std::ffi::OsStr;
 use std::io;
 use std::io::{BufReader, Cursor, Write};
 use std::path::{Component, Path, PathBuf};
@@ -182,8 +181,9 @@ fn source_dist_matcher(
     if settings.default_excludes {
         excludes.extend(DEFAULT_EXCLUDES.iter().map(ToString::to_string));
     }
-    // Exclude pyproject.toml.orig from source tree since we generate our own.
-    excludes.push(PYPROJECT_TOML_ORIG.to_string());
+    // Exclude pyproject.toml.orig from source tree root since we generate our own.
+    // Anchored with leading `/` so it only matches the root, not subdirectories.
+    excludes.push(format!("/{PYPROJECT_TOML_ORIG}"));
     for exclude in settings.source_exclude {
         // Avoid duplicate entries.
         if !excludes.contains(&exclude) {
@@ -320,10 +320,12 @@ fn write_source_dist(
             continue;
         }
 
-        // Skip pyproject.toml since we handle it separately with TOML 1.0 rewriting.
-        // Also skip pyproject.toml.orig to avoid conflicts with our generated file.
-        if entry.file_name() == OsStr::new("pyproject.toml")
-            || entry.file_name() == OsStr::new(PYPROJECT_TOML_ORIG)
+        // Skip the root pyproject.toml since we handle it separately with TOML 1.0 rewriting.
+        // Also skip the root pyproject.toml.orig to avoid conflicts with our generated file.
+        // Only skip at the root level — nested pyproject.toml files (e.g., in subprojects)
+        // should be included as-is.
+        if relative == Path::new("pyproject.toml")
+            || relative == Path::new(PYPROJECT_TOML_ORIG)
         {
             trace!(
                 "Skipping {} (handled separately for TOML 1.0 compatibility)",

@@ -248,7 +248,7 @@ jobs:
     timeout-minutes: 10
     name: "pyston on linux"
     runs-on: ubuntu-latest
-    container: pyston/pyston:2.3.5
+    container: pyston/pyston:2.3.5@sha256:3e8c851140fb52a183b1d7f478e2a534374275516426acfeda5c2b0a032fc6bb
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -272,7 +272,7 @@ jobs:
     timeout-minutes: 10
     name: "python on alpine"
     runs-on: ubuntu-latest
-    container: alpine:latest
+    container: alpine:latest@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -684,7 +684,7 @@ jobs:
     timeout-minutes: 10
     name: "python on amazonlinux"
     runs-on: ubuntu-latest
-    container: amazonlinux:2023
+    container: amazonlinux:2023@sha256:74c545e3e04db388b00bd31d7cc5640d4e9c12058a6d72af938d113da3c82893
     steps:
       - name: "Install base requirements"
         run: |

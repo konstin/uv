@@ -75,7 +75,7 @@ jobs:
     name: "linux musl"
     timeout-minutes: 10
     runs-on: ubuntu-latest
-    container: alpine:latest
+    container: alpine:latest@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
